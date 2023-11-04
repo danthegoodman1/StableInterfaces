@@ -4,20 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"stableinterfaces/syncx"
 )
 
 type (
 	InterfaceManager struct {
-		hostID string
-		hosts  []string
+		hostID    string
+		hosts     []string
+		numShards uint32
 
 		// shardsToHost is a mapping of shards to hosts
-		shardsToHost map[uint32]string
+		shardsToHost syncx.Map[uint32, string]
 
 		// Default GetInstanceID
-		HashingFunction func(string) ([]byte, error)
+		HashingFunction func(string) (string, error)
 
-		instances map[string]*StableInterface
+		instances syncx.Map[string, *StableInterface]
 
 		interfaceSpawner InterfaceSpawner
 	}
@@ -30,6 +32,9 @@ var (
 	ErrTooFewShards        = errors.New("too few shards, the number of shards must be >= number of hosts")
 	ErrHostDoesNotOwnShard = errors.New("this host does not own the shard that instance belongs to, try checking InterfaceManager.GetHostForID() and whether that equals InterfaceManager.GetHostID()")
 	ErrReturnedNilInstance = errors.New("InterfaceSpawner returned a nil instance")
+	ErrShardNotFound       = errors.New("shard not found, there must be a bug")
+	ErrInstanceNotFound    = errors.New("instance not found")
+	ErrInstanceOnConnect   = errors.New("instance returned error during OnConnect")
 )
 
 // NewInterfaceManager makes a new interface.
@@ -37,9 +42,10 @@ var (
 func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, interfaceSpawner InterfaceSpawner) (*InterfaceManager, error) {
 	im := &InterfaceManager{
 		hostID:           hostID,
-		shardsToHost:     map[uint32]string{},
+		shardsToHost:     syncx.NewMap[uint32, string](),
 		HashingFunction:  TruncatedSHA256, // default function
 		interfaceSpawner: interfaceSpawner,
+		numShards:        numShards,
 	}
 
 	var err error
@@ -54,7 +60,7 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 
 	// Iterate over number of shards and map hosts
 	for i := 0; i < int(numShards); i++ {
-		im.shardsToHost[uint32(i)] = im.hosts[i%len(im.hosts)]
+		im.shardsToHost.Store(uint32(i), im.hosts[i%len(im.hosts)])
 	}
 
 	return im, nil
@@ -72,9 +78,13 @@ func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 		return "", fmt.Errorf("error in HashingFunction: %w", err)
 	}
 
-	shard := instanceInternalIDToShard(internalID, len(im.shardsToHost))
+	shard := instanceInternalIDToShard(internalID, int(im.numShards))
+	host, found := im.shardsToHost.Load(shard)
+	if !found {
+		return "", ErrShardNotFound
+	}
 
-	return im.shardsToHost[shard], nil
+	return host, nil
 }
 
 func (im *InterfaceManager) verifyHostOwnership(id string) error {
@@ -91,12 +101,13 @@ func (im *InterfaceManager) verifyHostOwnership(id string) error {
 }
 
 func (im *InterfaceManager) getOrMakeInstance(internalID string) (*StableInterface, error) {
-	instance, exists := im.instances[internalID]
+	instance, exists := im.instances.Load(internalID)
 	if !exists {
 		instance = ptr(im.interfaceSpawner(internalID))
 		if instance == nil {
 			return nil, ErrReturnedNilInstance
 		}
+		im.instances.Store(internalID, instance)
 	}
 
 	return instance, nil
@@ -135,4 +146,56 @@ func (im *InterfaceManager) Request(ctx context.Context, id string, payload any)
 	}
 
 	return response, nil
+}
+
+// ShutdownInstance turns off an instance of it is running.
+// Returns ErrInstanceNotFound if not running.
+// func (im *InterfaceManager) ShutdownInstance(ctx context.Context, id string) error {
+// 	// TODO
+// }
+
+// Connect connects to an instance for persistent duplex communication.
+// The recvHandler parameter will receive (blocking) messages when an instance sends a message to that, so you probably want to launch a goroutine for concurrency.
+// The returned MsgHandler can be invoked when you want to send a message to the instance
+func (im *InterfaceManager) Connect(ctx context.Context, id string, meta map[string]any) (*InterfaceConnection, error) {
+	if err := im.verifyHostOwnership(id); err != nil {
+		return nil, fmt.Errorf("error in verifyHostOwnership: %w", err)
+	}
+
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		return nil, fmt.Errorf("error in GetInternalID: %w", err)
+	}
+
+	instance, err := im.getOrMakeInstance(internalID)
+	if err != nil {
+		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
+	}
+
+	connID := genRandomID("")
+	incoming := newIncomingConnection(internalID, connID, meta)
+	doneChan := make(chan any, 1)
+	go func() {
+		(*instance).OnConnect(ctx, *incoming)
+		doneChan <- nil
+	}()
+
+	var connPair *connectionPair
+	select {
+	case connPair = <-incoming.acceptChan:
+		break
+	case <-doneChan:
+		break
+	case reason := <-incoming.rejectChan:
+		return nil, fmt.Errorf("%w, reason: %w", ErrIncomingConnectionRejected, reason)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("context done: %w", ctx.Err())
+	}
+
+	if connPair == nil {
+		// they did not accept or reject
+		return nil, ErrIncomingConnectionNotHandled
+	}
+
+	return &connPair.ManagerSide, nil
 }

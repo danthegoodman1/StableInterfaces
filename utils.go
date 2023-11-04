@@ -2,10 +2,13 @@ package stableinterfaces
 
 import (
 	"crypto/sha256"
+	"encoding/base32"
 	"fmt"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 func getEnvOrDefault(env, defaultVal string) string {
@@ -103,22 +106,26 @@ func Murmur2(b []byte) uint32 {
 	return h
 }
 
-func instanceInternalIDToShard(internalID []byte, numShards int) uint32 {
-	return Murmur2(internalID) % uint32(numShards)
+func instanceInternalIDToShard(internalID string, numShards int) uint32 {
+	return Murmur2([]byte(internalID)) % uint32(numShards)
 }
 
 // TruncatedSHA256 truncates the SHA256 hash to 32 characters
-func TruncatedSHA256(id string) ([]byte, error) {
+func TruncatedSHA256(id string) (string, error) {
 	h := sha256.New()
 	_, err := h.Write([]byte(id))
 	if err != nil {
-		return nil, fmt.Errorf("error in h.Write: %w", err)
+		return "", fmt.Errorf("error in h.Write: %w", err)
 	}
 
 	// Use a truncated hash
-	return h.Sum(nil)[:32], nil
+	return strings.ReplaceAll(base32.StdEncoding.EncodeToString(h.Sum(nil)[:32]), "=", ""), nil
 }
 
 func ptr[T any](s T) *T {
 	return &s
+}
+
+func genRandomID(prefix string) string {
+	return prefix + gonanoid.MustGenerate("abcdefghijklmonpqrstuvwxyzABCDEFGHIJKLMONPQRSTUVWXYZ0123456789", 22)
 }
