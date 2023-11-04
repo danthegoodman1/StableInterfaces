@@ -136,7 +136,7 @@ func TestStableInterfaceConnect(t *testing.T) {
 		t.Fatalf("did not get rejected error, got \n\tIC: %+v\n\tErr: %+v", ic, err)
 	}
 
-	// Test handling request
+	// Test handling accept
 	ic, err = im.Connect(context.Background(), id, map[string]any{
 		TestMetaKey: TestInstructionAccept,
 	})
