@@ -50,7 +50,10 @@ func (ti *TestInterface) OnConnect(ctx context.Context, ic IncomingConnection) {
 		ti.conn = ic.Accept()
 		ti.conn.OnRecv = func(payload any) {
 			fmt.Printf("Test interface %s received message: %+v\n", ic.instanceID, payload)
-			ti.conn.Send("Thanks for the message!")
+			err := ti.conn.Send("Thanks for the message!")
+			if err != nil {
+				panic(err)
+			}
 		}
 	default:
 		// Do nothing by default
@@ -151,8 +154,14 @@ func TestStableInterfaceConnect(t *testing.T) {
 		cancel()
 	}
 
-	ic.Send("Hello from test 1!")
-	ic.Send("Hello from test 2!")
+	err = ic.Send("Hello from test 1!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ic.Send("Hello from test 2!")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	<-ctx.Done()
 	if !errors.Is(ctx.Err(), context.Canceled) {
