@@ -19,8 +19,9 @@ const (
 	TestInterfaceDefault          = "default response"
 
 	TestMetaKey           = "instruction"
-	TestInstructionReject = "2"
-	TestInstructionAccept = "3"
+	TestInstructionReject = "reject"
+	TestInstructionAccept = "accept"
+	TestInstructionClose  = "close"
 )
 
 type TestInterface struct {
@@ -47,12 +48,34 @@ func (ti *TestInterface) OnConnect(ctx context.Context, ic IncomingConnection) {
 	case TestInstructionReject:
 		ic.Reject(TestError)
 	case TestInstructionAccept:
-		ti.conn = ic.Accept()
-		ti.conn.OnRecv = func(payload any) {
-			fmt.Printf("Test interface %s received message: %+v\n", ic.instanceID, payload)
-			err := ti.conn.Send("Thanks for the message!")
-			if err != nil {
+		conn := ic.Accept()
+		conn.OnRecv = func(payload any) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+			defer cancel()
+			fmt.Printf("Test interface %s (%s) received message: %+v\n", ic.instanceID, ic.ConnectionID, payload)
+			if s, ok := payload.(string); ok && s == TestInstructionClose {
+				err := conn.Close()
+				if err != nil {
+					fmt.Printf("Test interface %s (%s) PANICKING on message: %+v\n", ic.instanceID, ic.ConnectionID, payload)
+					panic(err)
+				}
+				fmt.Printf("Test interface %s (%s) closed connection on message: %+v\n", ic.instanceID, ic.ConnectionID, payload)
+				// Try sending, this should error
+				if err := conn.Send(ctx, "blah"); !errors.Is(err, ErrConnectionClosed) {
+					panic(err)
+				}
+				return
+			}
+			err := conn.Send(ctx, "Thanks for the message!")
+			if errors.Is(err, ErrConnectionClosed) {
+				fmt.Printf("Test interface %s (%s) tried to send back but was closed on message: %+v (this is ok if it's the second message, that's just concurrency)\n", ic.instanceID, ic.ConnectionID, payload)
+			} else if err != nil {
+				fmt.Printf("Test interface %s (%s) PANICKING on message: %+v\n", ic.instanceID, conn.ID, payload)
 				panic(err)
+			}
+			if c, ok := payload.(chan any); ok {
+				// The test is waiting us to verify we got it
+				c <- nil
 			}
 		}
 	default:
@@ -147,24 +170,68 @@ func TestStableInterfaceConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
-	defer cancel()
 	ic.OnRecv = func(payload any) {
 		fmt.Println("Test function got message from test interface:", payload)
-		cancel()
 	}
 
-	err = ic.Send("Hello from test 1!")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	c1 := make(chan any)
+	c2 := make(chan any)
+	err = ic.Send(ctx, c1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ic.Send("Hello from test 2!")
+	<-c1
+
+	err = ic.Send(ctx, c2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-c2
+
+	t.Log("got messages on channels")
+
+	// Close test
+	err = ic.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	<-ctx.Done()
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatal(ctx.Err())
+	// Verify closing again doesn't work
+	err = ic.Close()
+	if !errors.Is(err, ErrConnectionClosed) {
+		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+
+	err = ic.Send(ctx, "blah")
+	if !errors.Is(err, ErrConnectionClosed) {
+		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+
+	// Make another to test remote close
+	ic, err = im.Connect(context.Background(), id, map[string]any{
+		TestMetaKey: TestInstructionAccept,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = ic.Send(ctx, TestInstructionClose)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Let's sleep to prevent hitting the context deadline due to optimistic closing
+	time.Sleep(time.Millisecond)
+
+	// need to wait because this might happen before it's closed
+	err = ic.Send(ctx, TestInstructionClose)
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Log("Concurrency resulted in the send finding closed after deadline!")
+	}
+	if !errors.Is(err, ErrConnectionClosed) {
+		t.Fatal("did not get ErrConnectionClosed, got", err)
 	}
 }

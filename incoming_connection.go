@@ -33,25 +33,29 @@ func newIncomingConnection(instanceID, connectionID string, meta map[string]any)
 func (ic *IncomingConnection) Accept() *InterfaceConnection {
 	managerToInterface := make(chan any)
 	interfaceToManager := make(chan any)
+	closedChan := make(chan any)
+	closed := atomic.Bool{}
 
 	connPair := connectionPair{
 		InterfaceSide: InterfaceConnection{
-			ID:       ic.ConnectionID,
-			OnClose:  nil,
-			closed:   atomic.Bool{},
-			OnRecv:   nil,
-			sendChan: interfaceToManager,
-			recvChan: managerToInterface,
-			side:     interfaceSide,
+			ID:         ic.ConnectionID,
+			OnClose:    nil,
+			OnRecv:     nil,
+			closed:     &closed,
+			closedChan: closedChan,
+			sendChan:   interfaceToManager,
+			recvChan:   managerToInterface,
+			side:       interfaceSide,
 		},
 		ManagerSide: InterfaceConnection{
-			ID:       ic.ConnectionID,
-			OnClose:  nil,
-			closed:   atomic.Bool{},
-			OnRecv:   nil,
-			sendChan: managerToInterface,
-			recvChan: interfaceToManager,
-			side:     managerSide,
+			ID:         ic.ConnectionID,
+			OnClose:    nil,
+			closed:     &closed,
+			closedChan: closedChan,
+			OnRecv:     nil,
+			sendChan:   managerToInterface,
+			recvChan:   interfaceToManager,
+			side:       managerSide,
 		},
 	}
 
