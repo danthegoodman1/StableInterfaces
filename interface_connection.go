@@ -75,7 +75,8 @@ func (ic *InterfaceConnection) Close() error {
 // The context is only for queueing sends to the channel, not actual OnRecv processing, as sending is blocking.
 // So best to keep this relatively short and launch goroutines in OnRecv.
 // In the event that the channel is closes after we've checked (and it was found open), the ctx will time out with
-// the error fmt.Errorf("%w: %w", context.DeadlineExceeded, ErrConnectionClosed) .
+// the error fmt.Errorf("%w: %w", context.DeadlineExceeded, ErrConnectionClosed).
+// if there are queued sends when Close() is called, some may make it through due to Go's select.
 func (ic *InterfaceConnection) Send(ctx context.Context, payload any) error {
 	if ic.closed.Load() {
 		return ErrConnectionClosed
