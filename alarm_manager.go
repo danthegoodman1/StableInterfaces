@@ -13,8 +13,9 @@ const (
 type (
 	// AlarmManager manages alarms per-shard
 	AlarmManager interface {
-		// PollAlarms will return all alarms that are ready to fire, but should not mark them fired (done in MarkAlarmDone)
-		PollAlarms(ctx context.Context, shard uint32) ([]Alarm, error)
+		// GetNextAlarms will return the next N alarms, sorted by time, whether they are firing or not.
+		// StableInterfaces will cache alarms in memory for instant firing, and poll for more when it runs out.
+		GetNextAlarms(ctx context.Context, shard uint32) ([]Alarm, error)
 		// SetAlarm should create or update an alarm
 		SetAlarm(ctx context.Context, shard uint32, alarm Alarm) error
 		// MarkAlarmDone marks a handled alarm done (for any reason it should stop firing)
