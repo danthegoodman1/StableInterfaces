@@ -30,32 +30,32 @@ type (
 		closed *atomic.Bool
 
 		// OnRecv is called when the interface send a message to the connection.
-		// This function is blocking, so you probably want to launch a goroutine.
+		// This function is executed non-blocking (launched in a goroutine)
 		OnRecv func(payload any)
 
-		sendChan, recvChan chan any
-		// Need channels to prevent panic on sending to closed channel, but not blocking
-		// because connection listener is already in goroutine
-		closedChan chan any
+		sendChan, recvChan, closedChan chan any
 	}
 
 	connectionPair struct {
 		InterfaceSide, ManagerSide InterfaceConnection
+		// Need channels to prevent panic on sending to closed channel, but not blocking
+		// because connection listener is already in goroutine
+		closedChan chan any
 	}
 )
 
-func launchInterfaceConnectionListener(ic *InterfaceConnection) {
-	// Manager side listener
+func launchConnectionPairListener(cp *connectionPair) {
 	for {
 		select {
-		case received, more := <-ic.recvChan:
-			if !more {
-				return
+		case received := <-cp.ManagerSide.recvChan:
+			if cp.ManagerSide.OnRecv != nil {
+				go cp.ManagerSide.OnRecv(received)
 			}
-			if ic.OnRecv != nil {
-				ic.OnRecv(received)
+		case received := <-cp.InterfaceSide.recvChan:
+			if cp.InterfaceSide.OnRecv != nil {
+				go cp.InterfaceSide.OnRecv(received)
 			}
-		case <-ic.closedChan:
+		case <-cp.closedChan:
 			return
 		}
 	}
@@ -66,8 +66,6 @@ func (ic *InterfaceConnection) Close() error {
 	if !ic.closed.CompareAndSwap(false, true) {
 		return ErrConnectionClosed
 	}
-	close(ic.sendChan)
-	ic.closedChan <- nil
 	return nil
 }
 

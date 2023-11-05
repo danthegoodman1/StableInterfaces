@@ -255,7 +255,7 @@ func TestWithAlarm(t *testing.T) {
 				internalID: internalID,
 			},
 		}
-	}, WithAlarm())
+	}, WithAlarm(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestWithAlarm(t *testing.T) {
 		return &TestInterface{
 			internalID: internalID,
 		}
-	}, WithAlarm())
+	}, WithAlarm(nil))
 	if !errors.Is(err, ErrInterfaceNotWithAlarm) {
 		t.Fatal("did not get ErrInterfaceNotWithAlarm, got:", err)
 	}
