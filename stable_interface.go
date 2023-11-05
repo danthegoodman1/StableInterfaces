@@ -19,6 +19,11 @@ type StableInterface interface {
 	OnConnect(context.Context, IncomingConnection)
 }
 
+type StableInterfaceWithAlarm interface {
+	StableInterface
+	OnAlarm(ctx context.Context, id string, meta map[string]any)
+}
+
 func wrapStableInterfaceHandlerError(err error) error {
 	return fmt.Errorf("%w: %w", StableInterfaceHandlerErr, err)
 }

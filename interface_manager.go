@@ -22,6 +22,8 @@ type (
 		instances syncx.Map[string, *StableInterface]
 
 		interfaceSpawner InterfaceSpawner
+
+		withAlarm bool
 	}
 
 	// InterfaceSpawner should return a pointer to a StableInterface
@@ -39,7 +41,7 @@ var (
 
 // NewInterfaceManager makes a new interface.
 // InterfaceSpawner should return a pointer to a StableInterface
-func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, interfaceSpawner InterfaceSpawner) (*InterfaceManager, error) {
+func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, interfaceSpawner InterfaceSpawner, opts ...InterfaceManagerOption) (*InterfaceManager, error) {
 	im := &InterfaceManager{
 		hostID:           hostID,
 		shardsToHost:     syncx.NewMap[uint32, string](),
@@ -66,6 +68,14 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 	// Iterate over number of shards and map hosts
 	for i := 0; i < int(numShards); i++ {
 		im.shardsToHost.Store(uint32(i), im.hosts[i%len(im.hosts)])
+	}
+
+	// Handle options
+	for _, opt := range opts {
+		err = opt(im)
+		if err != nil {
+			return nil, fmt.Errorf("error setting option: %w", err)
+		}
 	}
 
 	return im, nil
@@ -116,6 +126,10 @@ func (im *InterfaceManager) getOrMakeInstance(internalID string) (*StableInterfa
 	}
 
 	return instance, nil
+}
+
+func (im *InterfaceManager) destroyInstanceIfExists(internalID string) {
+	im.instances.Delete(internalID)
 }
 
 func (im *InterfaceManager) GetInternalID(id string) (string, error) {

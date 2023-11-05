@@ -83,6 +83,14 @@ func (ti *TestInterface) OnConnect(ctx context.Context, ic IncomingConnection) {
 	}
 }
 
+type TestInterfaceWithAlarm struct {
+	TestInterface
+}
+
+func (tia *TestInterfaceWithAlarm) OnAlarm(ctx context.Context, alarmID string, alarmMeta map[string]any) {
+	fmt.Printf("Test interface %s got alarm %s\n", tia.internalID, alarmID)
+}
+
 func TestStableInterfaceRequest(t *testing.T) {
 	host := "host-0"
 	id := "wrgh9uierhguhrhgierhughe"
@@ -234,4 +242,45 @@ func TestStableInterfaceConnect(t *testing.T) {
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
 	}
+}
+
+func TestWithAlarm(t *testing.T) {
+	host := "host-0"
+	// id := "wrgh9uierhguhrhgierhughe"
+
+	// Verify that the alarm interface creates correctly
+	_, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterfaceWithAlarm{
+			TestInterface{
+				internalID: internalID,
+			},
+		}
+	}, WithAlarm())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that it works without alarm
+	_, err = NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterfaceWithAlarm{
+			TestInterface{
+				internalID: internalID,
+			},
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that error throws if not alarm
+	_, err = NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterface{
+			internalID: internalID,
+		}
+	}, WithAlarm())
+	if !errors.Is(err, ErrInterfaceNotWithAlarm) {
+		t.Fatal("did not get ErrInterfaceNotWithAlarm, got:", err)
+	}
+
+	// TODO: Test alarm firing
 }
