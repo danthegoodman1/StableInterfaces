@@ -17,7 +17,7 @@ const (
 	withAlarmTestInstanceID = "withAlarmTestInstanceID"
 )
 
-func WithAlarm() InterfaceManagerOption {
+func WithAlarm(alarmManager *AlarmManager) InterfaceManagerOption {
 	return func(manager *InterfaceManager) error {
 		// Spawn a test interface (this doesn't even belong on this host)
 		testInterface, err := manager.getOrMakeInstance(withAlarmTestInstanceID)
