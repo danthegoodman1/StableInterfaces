@@ -49,7 +49,12 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 	}
 
 	var err error
-	im.hosts, err = expandRangePattern(hostExpansion)
+	if hostID == hostExpansion {
+		// Single host
+		im.hosts = []string{hostID}
+	} else {
+		im.hosts, err = expandRangePattern(hostExpansion)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error expanding hosts to list, did the notation look like `host-{x..y}`?: %w", err)
 	}
