@@ -134,3 +134,10 @@ func genRandomID(prefix string) string {
 func genKSortedID(prefix string) string {
 	return prefix + ksuid.New().String()
 }
+
+func deref[T any](ref *T, fallback T) T {
+	if ref == nil {
+		return fallback
+	}
+	return *ref
+}

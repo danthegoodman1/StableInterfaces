@@ -3,6 +3,7 @@ package stableinterfaces
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 type (
@@ -10,14 +11,15 @@ type (
 )
 
 var (
-	ErrInterfaceNotWithAlarm = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the OnAlarm handler")
+	ErrInterfaceNotWithAlarm        = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the OnAlarm handler")
+	ErrInterfaceManagerNotWithAlarm = errors.New("the interface manager does not have WithAlarm()")
 )
 
 const (
 	withAlarmTestInstanceID = "withAlarmTestInstanceID"
 )
 
-func WithAlarm(alarmManager *AlarmManager) InterfaceManagerOption {
+func WithAlarm(alarmManager AlarmManager) InterfaceManagerOption {
 	return func(manager *InterfaceManager) error {
 		// Spawn a test interface (this doesn't even belong on this host)
 		testInterface, err := manager.getOrMakeInstance(withAlarmTestInstanceID)
@@ -29,7 +31,28 @@ func WithAlarm(alarmManager *AlarmManager) InterfaceManagerOption {
 			return ErrInterfaceNotWithAlarm
 		}
 		// We are good otherwise
-		manager.withAlarm = true
+		manager.alarmManager = alarmManager
+		return nil
+	}
+}
+
+func WithAlarmCheckInterval(duration time.Duration) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.alarmCheckInterval = &duration
+		return nil
+	}
+}
+
+func WithGetAlarmsTimeout(duration time.Duration) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.getAlarmsTimeout = &duration
+		return nil
+	}
+}
+
+func WithLogger(logger Logger) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.logger = logger
 		return nil
 	}
 }

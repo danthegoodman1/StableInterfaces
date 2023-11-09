@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"stableinterfaces/syncx"
+	"time"
 )
 
 type (
@@ -12,6 +13,7 @@ type (
 		hostID    string
 		hosts     []string
 		numShards uint32
+		myShards  []uint32
 
 		// shardsToHost is a mapping of shards to hosts
 		shardsToHost syncx.Map[uint32, string]
@@ -23,11 +25,20 @@ type (
 
 		interfaceSpawner InterfaceSpawner
 
-		withAlarm bool
+		alarmManager       AlarmManager
+		alarmCheckInterval *time.Duration
+		alarmStopChans     []chan any
+		getAlarmsTimeout   *time.Duration
+		logger             Logger
 	}
 
 	// InterfaceSpawner should return a pointer to a StableInterface
 	InterfaceSpawner func(internalID string) StableInterface
+)
+
+const (
+	DefaultAlarmCheckInterval = time.Millisecond * 150
+	DefaultAlarmCheckTimeout  = time.Second * 5
 )
 
 var (
@@ -48,6 +59,8 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 		HashingFunction:  TruncatedSHA256, // default function
 		interfaceSpawner: interfaceSpawner,
 		numShards:        numShards,
+		myShards:         []uint32{},
+		logger:           &DefaultLogger{},
 	}
 
 	var err error
@@ -67,7 +80,11 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 
 	// Iterate over number of shards and map hosts
 	for i := 0; i < int(numShards); i++ {
-		im.shardsToHost.Store(uint32(i), im.hosts[i%len(im.hosts)])
+		modHost := im.hosts[i%len(im.hosts)]
+		im.shardsToHost.Store(uint32(i), modHost)
+		if modHost == hostID {
+			im.myShards = append(im.myShards, uint32(i))
+		}
 	}
 
 	// Handle options
@@ -78,15 +95,24 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 		}
 	}
 
+	// If we are using an alarm, do that
+	if im.alarmManager != nil {
+		for _, shard := range im.myShards {
+			stopChan := make(chan any)
+			im.alarmStopChans = append(im.alarmStopChans, stopChan)
+			go im.launchPollAlarms(shard, stopChan)
+		}
+	}
+
 	return im, nil
 }
 
-// GetHostID returns the host ID
+// GetHostID returns the host AlarmID
 func (im *InterfaceManager) GetHostID() string {
 	return im.hostID
 }
 
-// GetHostForID returns the owning host ID of the instance ID
+// GetHostForID returns the owning host AlarmID of the instance AlarmID
 func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 	internalID, err := im.HashingFunction(id)
 	if err != nil {
@@ -103,7 +129,7 @@ func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 }
 
 func (im *InterfaceManager) verifyHostOwnership(id string) error {
-	// Hash ID and make sure we own the shard
+	// Hash AlarmID and make sure we own the shard
 	hostForID, err := im.GetHostForID(id)
 	if err != nil {
 		return fmt.Errorf("error in GetHostForID: %w", err)
@@ -138,13 +164,13 @@ func (im *InterfaceManager) GetInternalID(id string) (string, error) {
 		return "", fmt.Errorf("error in HashingFunction: %w", err)
 	}
 
-	return string(internalID), nil
+	return internalID, nil
 }
 
 // Request invokes a request-response like interaction with an instance of a stable interface.
 // It will create the interface if it is not started or has yet to exist.
 func (im *InterfaceManager) Request(ctx context.Context, id string, payload any) (any, error) {
-	// Hash ID and make sure we own the shard
+	// Hash AlarmID and make sure we own the shard
 	if err := im.verifyHostOwnership(id); err != nil {
 		return nil, fmt.Errorf("error in verifyHostOwnership: %w", err)
 	}
@@ -159,7 +185,7 @@ func (im *InterfaceManager) Request(ctx context.Context, id string, payload any)
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	response, err := (*instance).OnRequest(ctx, payload)
+	response, err := (*instance).OnRequest(im.makeInterfaceContext(internalID, ctx), payload)
 	if err != nil {
 		return nil, wrapStableInterfaceHandlerError(err)
 	}
@@ -167,10 +193,24 @@ func (im *InterfaceManager) Request(ctx context.Context, id string, payload any)
 	return response, nil
 }
 
+func (im *InterfaceManager) makeInterfaceContext(internalID string, ctx context.Context) InterfaceContext {
+	return InterfaceContext{
+		Context:          ctx,
+		Shard:            instanceInternalIDToShard(internalID, int(im.numShards)),
+		interfaceManager: im,
+	}
+}
+
 // ShutdownInstance turns off an instance of it is running.
 // Returns ErrInstanceNotFound if not running.
 // func (im *InterfaceManager) ShutdownInstance(ctx context.Context, id string) error {
 // 	// TODO
+// }
+
+// Shutdown shuts down the entire interface manager
+// func (im *InterfaceManager) Shutdown(ctx context.Context) error {
+// 	// TODO
+//  // TODO: Kill the alarm ticker
 // }
 
 // Connect connects to an instance for persistent duplex communication.
@@ -195,7 +235,7 @@ func (im *InterfaceManager) Connect(ctx context.Context, id string, meta map[str
 	incoming := newIncomingConnection(internalID, connID, meta)
 	doneChan := make(chan any, 1)
 	go func() {
-		(*instance).OnConnect(ctx, *incoming)
+		(*instance).OnConnect(im.makeInterfaceContext(internalID, ctx), *incoming)
 		doneChan <- nil
 	}()
 
