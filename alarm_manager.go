@@ -2,7 +2,6 @@ package stableinterfaces
 
 import (
 	"context"
-	"fmt"
 	"time"
 )
 
@@ -30,35 +29,10 @@ type (
 	}
 
 	StoredAlarm struct {
-		AlarmID, InterfaceInstanceInternalID string
-		Meta                                 map[string]any
-		Created, Fires                       time.Time
+		ID, InterfaceInstanceInternalID string
+		Meta                            map[string]any
+		Created, Fires                  time.Time
 	}
 
 	AlarmDoneReason string
 )
-
-// launchPollAlarms should be launched in a goroutine, start polling for alarms
-func (im *InterfaceManager) launchPollAlarms(shard uint32, stopChan chan any) {
-	// Get stored alarms
-	storedAlarms, err := im.getStoredAlarms(shard)
-	if err != nil {
-		im.logger.Fatal(fmt.Sprintf("failed to get stored alarms for shard %d", shard), err)
-	}
-
-	ticker := time.NewTicker(deref(im.alarmCheckInterval, DefaultAlarmCheckInterval))
-	select {
-	case <-ticker.C:
-		// Check for the next alarm
-
-	case <-stopChan:
-		ticker.Stop()
-		return
-	}
-}
-
-func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), deref(im.getAlarmsTimeout, DefaultAlarmCheckTimeout))
-	defer cancel()
-	return im.alarmManager.GetNextAlarms(ctx, shard)
-}

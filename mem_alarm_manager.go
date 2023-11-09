@@ -8,7 +8,7 @@ import (
 
 type (
 	// MemAlarmManager is a memory-only implementation of AlarmManager.
-	// Thread-safe, made for testing only!
+	// Not thread-safe, made for testing only!
 	MemAlarmManager struct {
 		alarms syncx.Map[uint32, *btree.Map[string, StoredAlarm]]
 	}
@@ -45,7 +45,7 @@ func (m *MemAlarmManager) SetAlarm(_ context.Context, shard uint32, alarm Stored
 		m.alarms.Store(shard, tree)
 	}
 
-	tree.Set(alarm.AlarmID, alarm)
+	tree.Set(alarm.ID, alarm)
 	return nil
 }
 

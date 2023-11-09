@@ -139,7 +139,7 @@ func TestRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if s, ok := res.(string); !ok || s != internalID {
-		t.Fatalf("did not get matching internal AlarmID, got: %+v", s)
+		t.Fatalf("did not get matching internal ID, got: %+v", s)
 	}
 
 	// Check error handling

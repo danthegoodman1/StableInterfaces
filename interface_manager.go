@@ -25,11 +25,11 @@ type (
 
 		interfaceSpawner InterfaceSpawner
 
-		alarmManager       AlarmManager
-		alarmCheckInterval *time.Duration
-		alarmStopChans     []chan any
-		getAlarmsTimeout   *time.Duration
-		logger             Logger
+		alarmManager          AlarmManager
+		alarmCheckInterval    *time.Duration
+		internalAlarmManagers syncx.Map[uint32, *internalAlarmManager]
+		getAlarmsTimeout      *time.Duration
+		logger                Logger
 	}
 
 	// InterfaceSpawner should return a pointer to a StableInterface
@@ -98,21 +98,21 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 	// If we are using an alarm, do that
 	if im.alarmManager != nil {
 		for _, shard := range im.myShards {
-			stopChan := make(chan any)
-			im.alarmStopChans = append(im.alarmStopChans, stopChan)
-			go im.launchPollAlarms(shard, stopChan)
+			alarmManager := newInternalAlarmManager(shard, im)
+			im.internalAlarmManagers.Store(shard, alarmManager)
+			go alarmManager.launchPollAlarms()
 		}
 	}
 
 	return im, nil
 }
 
-// GetHostID returns the host AlarmID
+// GetHostID returns the host ID
 func (im *InterfaceManager) GetHostID() string {
 	return im.hostID
 }
 
-// GetHostForID returns the owning host AlarmID of the instance AlarmID
+// GetHostForID returns the owning host ID of the instance ID
 func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 	internalID, err := im.HashingFunction(id)
 	if err != nil {
@@ -129,7 +129,7 @@ func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 }
 
 func (im *InterfaceManager) verifyHostOwnership(id string) error {
-	// Hash AlarmID and make sure we own the shard
+	// Hash ID and make sure we own the shard
 	hostForID, err := im.GetHostForID(id)
 	if err != nil {
 		return fmt.Errorf("error in GetHostForID: %w", err)
@@ -170,7 +170,7 @@ func (im *InterfaceManager) GetInternalID(id string) (string, error) {
 // Request invokes a request-response like interaction with an instance of a stable interface.
 // It will create the interface if it is not started or has yet to exist.
 func (im *InterfaceManager) Request(ctx context.Context, id string, payload any) (any, error) {
-	// Hash AlarmID and make sure we own the shard
+	// Hash ID and make sure we own the shard
 	if err := im.verifyHostOwnership(id); err != nil {
 		return nil, fmt.Errorf("error in verifyHostOwnership: %w", err)
 	}
@@ -257,4 +257,10 @@ func (im *InterfaceManager) Connect(ctx context.Context, id string, meta map[str
 	}
 
 	return &connPair.ManagerSide, nil
+}
+
+func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), deref(im.getAlarmsTimeout, DefaultAlarmCheckTimeout))
+	defer cancel()
+	return im.alarmManager.GetNextAlarms(ctx, shard)
 }

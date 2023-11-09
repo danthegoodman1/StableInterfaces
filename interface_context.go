@@ -21,15 +21,23 @@ func (ic *InterfaceContext) SetAlarm(ctx context.Context, id string, meta map[st
 		return ErrInterfaceManagerNotWithAlarm
 	}
 
-	err := ic.interfaceManager.alarmManager.SetAlarm(ctx, ic.Shard, StoredAlarm{
-		AlarmID: id,
+	stored := StoredAlarm{
+		ID:      id,
 		Meta:    meta,
 		Created: time.Now(),
 		Fires:   at,
-	})
+	}
+	err := ic.interfaceManager.alarmManager.SetAlarm(ctx, ic.Shard, stored)
 	if err != nil {
 		return fmt.Errorf("error in SetAlarm: %w", err)
 	}
+	iam, found := ic.interfaceManager.internalAlarmManagers.Load(ic.Shard)
+	if !found {
+		return ErrInternalAlarmManagerNotFound
+	}
+
+	iam.SetAlarm(stored)
+
 	return nil
 }
 
