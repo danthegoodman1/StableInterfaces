@@ -17,10 +17,6 @@ type (
 	}
 )
 
-const (
-	AlarmDoneReasonCanceled = "canceled"
-)
-
 func (ic *InterfaceContext) SetAlarm(ctx context.Context, meta map[string]any, at time.Time) error {
 	if ic.interfaceManager.alarmManager == nil {
 		return ErrInterfaceManagerNotWithAlarm
@@ -68,7 +64,7 @@ func (ic *InterfaceContext) CancelAlarm(ctx context.Context, alarmID string) err
 	iam.DeleteAlarm(alarmID)
 
 	// Delete from storage
-	err := ic.interfaceManager.alarmManager.MarkAlarmDone(ctx, ic.Shard, alarmID, AlarmDoneReasonCanceled)
+	err := ic.interfaceManager.alarmManager.MarkAlarmDone(ctx, ic.Shard, alarmID, AlarmCanceled)
 	if err != nil {
 		return fmt.Errorf("error in MarkAlarmDone: %w", err)
 	}

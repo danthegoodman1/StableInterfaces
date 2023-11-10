@@ -8,6 +8,7 @@ import (
 const (
 	AlarmSuccessful         AlarmDoneReason = "successful"
 	AlarmMaxRetriesExceeded AlarmDoneReason = "max retries exceeded"
+	AlarmCanceled                           = "canceled"
 )
 
 var (
