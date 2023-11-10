@@ -70,9 +70,43 @@ func (iam *internalAlarmManager) checkAlarms() {
 }
 
 func (iam *internalAlarmManager) SetAlarm(alarm StoredAlarm) {
-
+	iam.setIDIndex(alarm)
+	iam.setAlarmIndex(alarm)
 }
 
-func (iam *internalAlarmManager) DeleteAlarm(id string) {
+func (iam *internalAlarmManager) setIDIndex(alarm StoredAlarm) {
+	iam.idIndexMu.Lock()
+	defer iam.idIndexMu.Unlock()
+	iam.idIndex.Set(alarm.ID, &alarm)
+}
 
+func (iam *internalAlarmManager) setAlarmIndex(alarm StoredAlarm) {
+	iam.alarmIndexMu.Lock()
+	defer iam.alarmIndexMu.Unlock()
+	iam.alarmIndex.Set(formatAlarmIndexKey(alarm.Fires, alarm.ID), &alarm)
+}
+
+func (iam *internalAlarmManager) DeleteAlarm(alarmID string) {
+	fires := iam.deleteIDIndex(alarmID)
+	if fires != nil {
+		iam.deleteAlarmIndex(alarmID, *fires)
+	}
+}
+
+// deleteIDIndex returns the StoredAlarm.Fires time if found
+func (iam *internalAlarmManager) deleteIDIndex(alarmID string) *time.Time {
+	iam.idIndexMu.Lock()
+	defer iam.idIndexMu.Unlock()
+	alarm, found := iam.idIndex.Get(alarmID)
+	if !found {
+		return nil
+	}
+	iam.idIndex.Delete(alarm.ID)
+	return &alarm.Fires
+}
+
+func (iam *internalAlarmManager) deleteAlarmIndex(alarmID string, fires time.Time) {
+	iam.alarmIndexMu.Lock()
+	defer iam.alarmIndexMu.Unlock()
+	iam.alarmIndex.Delete(formatAlarmIndexKey(fires, alarmID))
 }
