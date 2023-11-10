@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"fmt"
 	gonanoid "github.com/matoous/go-nanoid/v2"
+	"github.com/segmentio/ksuid"
 	"os"
 	"regexp"
 	"strconv"
@@ -128,4 +129,15 @@ func ptr[T any](s T) *T {
 
 func genRandomID(prefix string) string {
 	return prefix + gonanoid.MustGenerate("abcdefghijklmonpqrstuvwxyzABCDEFGHIJKLMONPQRSTUVWXYZ0123456789", 22)
+}
+
+func genKSortedID(prefix string) string {
+	return prefix + ksuid.New().String()
+}
+
+func deref[T any](ref *T, fallback T) T {
+	if ref == nil {
+		return fallback
+	}
+	return *ref
 }

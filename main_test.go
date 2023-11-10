@@ -9,51 +9,65 @@ import (
 )
 
 var (
-	TestError             = errors.New("test error")
-	ErrUnknownInstruction = errors.New("test error")
+	testError             = errors.New("test error")
+	errUnknownInstruction = errors.New("test error")
 )
 
 const (
-	TestInterfaceReturnError      = "err"
-	TestInterfaceReturnInternalID = "return internal id"
-	TestInterfaceDefault          = "default response"
+	testInstructionReturnError      = "err"
+	testInstructionReturnInternalID = "return internal id"
+	testInstructionDefault          = "default response"
 
-	TestMetaKey           = "instruction"
-	TestInstructionReject = "reject"
-	TestInstructionAccept = "accept"
-	TestInstructionClose  = "close"
+	testMetaKey            = "instruction"
+	testInstructionReject  = "reject"
+	testInstructionAccept  = "accept"
+	testInstructionClose   = "close"
+	testInstructionDoAlarm = "alarm"
+
+	testAlarmChannelKey = "alarmChan"
 )
 
-type TestInterface struct {
-	internalID string
-	conn       *InterfaceConnection
-}
+type (
+	TestInterface struct {
+		internalID string
+		conn       *InterfaceConnection
+	}
+)
 
-func (ti *TestInterface) OnRequest(ctx context.Context, payload any) (any, error) {
+func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error) {
 	if s, ok := payload.(string); ok {
 		switch s {
-		case TestInterfaceReturnError:
-			return nil, TestError
-		case TestInterfaceReturnInternalID:
+		case testInstructionReturnError:
+			return nil, testError
+		case testInstructionReturnInternalID:
 			return ti.internalID, nil
+		case testInstructionDoAlarm:
+			responseChan := make(chan any)
+			err := c.SetAlarm(c.Context, map[string]any{
+				testAlarmChannelKey: responseChan,
+			}, time.Now().Add(time.Millisecond*300))
+			if err != nil {
+				return nil, fmt.Errorf("error in SetAlarm: %w", err)
+			}
+			return responseChan, nil
 		default:
-			return TestInterfaceDefault, nil
+			return testInstructionDefault, nil
 		}
 	}
-	return nil, ErrUnknownInstruction
+	return nil, errUnknownInstruction
 }
 
-func (ti *TestInterface) OnConnect(ctx context.Context, ic IncomingConnection) {
-	switch ic.Meta[TestMetaKey] {
-	case TestInstructionReject:
-		ic.Reject(TestError)
-	case TestInstructionAccept:
+func (ti *TestInterface) OnConnect(c InterfaceContext, ic IncomingConnection) {
+	switch ic.Meta[testMetaKey] {
+	case testInstructionReject:
+		ic.Reject(testError)
+	case testInstructionAccept:
 		conn := ic.Accept()
 		conn.OnRecv = func(payload any) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 			defer cancel()
 			fmt.Printf("Test interface %s (%s) received message: %+v\n", ic.instanceID, ic.ConnectionID, payload)
-			if s, ok := payload.(string); ok && s == TestInstructionClose {
+			if s, ok := payload.(string); ok && s == testInstructionClose {
 				err := conn.Close()
 				if err != nil {
 					fmt.Printf("Test interface %s (%s) PANICKING on message: %+v\n", ic.instanceID, ic.ConnectionID, payload)
@@ -83,7 +97,18 @@ func (ti *TestInterface) OnConnect(ctx context.Context, ic IncomingConnection) {
 	}
 }
 
-func TestStableInterfaceRequest(t *testing.T) {
+type TestInterfaceWithAlarm struct {
+	TestInterface
+}
+
+func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContext, alarmID string, alarmMeta map[string]any) error {
+	fmt.Printf("Test interface %s got alarm %s\n", tia.internalID, alarmID)
+	resChan := alarmMeta[testAlarmChannelKey].(chan any)
+	resChan <- nil
+	return nil
+}
+
+func TestRequest(t *testing.T) {
 	host := "host-0"
 	id := "wrgh9uierhguhrhgierhughe"
 	im, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
@@ -94,6 +119,8 @@ func TestStableInterfaceRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	t.Logf("My shards: %+v", im.myShards)
 
 	// Check hosts
 	instanceHost, err := im.GetHostForID(id)
@@ -110,7 +137,7 @@ func TestStableInterfaceRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := im.Request(context.Background(), id, TestInterfaceReturnInternalID)
+	res, err := im.Request(context.Background(), id, testInstructionReturnInternalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,9 +146,9 @@ func TestStableInterfaceRequest(t *testing.T) {
 	}
 
 	// Check error handling
-	res, err = im.Request(context.Background(), id, TestInterfaceReturnError)
+	res, err = im.Request(context.Background(), id, testInstructionReturnError)
 	if err != nil {
-		if !errors.Is(err, TestError) || !errors.Is(err, StableInterfaceHandlerErr) {
+		if !errors.Is(err, testError) || !errors.Is(err, StableInterfaceHandlerErr) {
 			t.Fatal()
 		}
 	}
@@ -136,7 +163,7 @@ func TestStableInterfaceRequest(t *testing.T) {
 	}
 }
 
-func TestStableInterfaceConnect(t *testing.T) {
+func TestConnect(t *testing.T) {
 	host := "host-0"
 	id := "wrgh9uierhguhrhgierhughe"
 	im, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
@@ -156,7 +183,7 @@ func TestStableInterfaceConnect(t *testing.T) {
 
 	// Test rejection
 	ic, err = im.Connect(context.Background(), id, map[string]any{
-		TestMetaKey: TestInstructionReject,
+		testMetaKey: testInstructionReject,
 	})
 	if !errors.Is(err, ErrIncomingConnectionRejected) {
 		t.Fatalf("did not get rejected error, got \n\tIC: %+v\n\tErr: %+v", ic, err)
@@ -164,7 +191,7 @@ func TestStableInterfaceConnect(t *testing.T) {
 
 	// Test handling accept
 	ic, err = im.Connect(context.Background(), id, map[string]any{
-		TestMetaKey: TestInstructionAccept,
+		testMetaKey: testInstructionAccept,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -212,13 +239,13 @@ func TestStableInterfaceConnect(t *testing.T) {
 
 	// Make another to test remote close
 	ic, err = im.Connect(context.Background(), id, map[string]any{
-		TestMetaKey: TestInstructionAccept,
+		testMetaKey: testInstructionAccept,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = ic.Send(ctx, TestInstructionClose)
+	err = ic.Send(ctx, testInstructionClose)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,11 +254,73 @@ func TestStableInterfaceConnect(t *testing.T) {
 	time.Sleep(time.Millisecond)
 
 	// need to wait because this might happen before it's closed
-	err = ic.Send(ctx, TestInstructionClose)
+	err = ic.Send(ctx, testInstructionClose)
 	if errors.Is(err, context.DeadlineExceeded) {
 		t.Log("Concurrency resulted in the send finding closed after deadline!")
 	}
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+}
+
+func TestWithAlarm(t *testing.T) {
+	host := "host-0"
+	id := "wrgh9uierhguhrhgierhughe"
+
+	alarmManager := NewMemAlarmManager()
+
+	// Verify that the alarm interface creates correctly
+	im, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterfaceWithAlarm{
+			TestInterface{
+				internalID: internalID,
+			},
+		}
+	}, WithAlarm(&alarmManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that it works without alarm
+	_, err = NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterfaceWithAlarm{
+			TestInterface{
+				internalID: internalID,
+			},
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify that error throws if not alarm
+	_, err = NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterface{
+			internalID: internalID,
+		}
+	}, WithAlarm(nil))
+	if !errors.Is(err, ErrInterfaceNotWithAlarm) {
+		t.Fatal("did not get ErrInterfaceNotWithAlarm, got:", err)
+	}
+
+	// Test alarm firing
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	res, err := im.Request(ctx, id, testInstructionDoAlarm)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alarmChan, ok := res.(chan any)
+	if !ok {
+		t.Fatal("did not get back a chan any")
+	}
+
+	t.Log("waiting on channel for alarm to fire")
+	select {
+	case <-alarmChan:
+		break
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 }

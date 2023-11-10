@@ -1,7 +1,6 @@
 package stableinterfaces
 
 import (
-	"context"
 	"errors"
 	"fmt"
 )
@@ -13,10 +12,15 @@ var (
 // StableInterface is implemented as a class to
 type StableInterface interface {
 	// OnRequest is blocking. If you want concurrency, launch a goroutine in the handler.
-	OnRequest(context.Context, any) (any, error)
+	OnRequest(InterfaceContext, any) (any, error)
 	// OnConnect is blocking. Launch a goroutine if you want concurrency.
 	// If a connection is not handled (not accepted or rejected), it is implicitly rejected.
-	OnConnect(context.Context, IncomingConnection)
+	OnConnect(InterfaceContext, IncomingConnection)
+}
+
+type StableInterfaceWithAlarm interface {
+	StableInterface
+	OnAlarm(ctx InterfaceContext, id string, meta map[string]any) error
 }
 
 func wrapStableInterfaceHandlerError(err error) error {

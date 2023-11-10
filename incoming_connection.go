@@ -37,6 +37,7 @@ func (ic *IncomingConnection) Accept() *InterfaceConnection {
 	closed := atomic.Bool{}
 
 	connPair := connectionPair{
+		closedChan: closedChan,
 		InterfaceSide: InterfaceConnection{
 			ID:         ic.ConnectionID,
 			OnClose:    nil,
@@ -51,8 +52,8 @@ func (ic *IncomingConnection) Accept() *InterfaceConnection {
 			ID:         ic.ConnectionID,
 			OnClose:    nil,
 			closed:     &closed,
-			closedChan: closedChan,
 			OnRecv:     nil,
+			closedChan: closedChan,
 			sendChan:   managerToInterface,
 			recvChan:   interfaceToManager,
 			side:       managerSide,
@@ -60,8 +61,7 @@ func (ic *IncomingConnection) Accept() *InterfaceConnection {
 	}
 
 	// Setup listeners in goroutines
-	go launchInterfaceConnectionListener(&connPair.ManagerSide)
-	go launchInterfaceConnectionListener(&connPair.InterfaceSide)
+	go launchConnectionPairListener(&connPair)
 
 	ic.acceptChan <- &connPair
 	return &connPair.InterfaceSide
