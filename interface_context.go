@@ -18,14 +18,13 @@ type (
 	}
 )
 
-func (ic *InterfaceContext) SetAlarm(ctx context.Context, meta map[string]any, at time.Time) error {
+func (ic *InterfaceContext) SetAlarm(ctx context.Context, id string, meta map[string]any, at time.Time) error {
 	if ic.interfaceManager.alarmManager == nil {
 		return ErrInterfaceManagerNotWithAlarm
 	}
 
-	alarmID := genRandomID("")
 	stored := StoredAlarm{
-		ID:                          alarmID,
+		ID:                          id,
 		Meta:                        meta,
 		Created:                     time.Now(),
 		Fires:                       at,

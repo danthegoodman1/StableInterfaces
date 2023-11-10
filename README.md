@@ -21,11 +21,11 @@ Stable Interfaces (SIs) provide scaffolding for building consistently-routable i
 DOs are fantastic, and cover >90% of use cases. There are some cases where they simply don't work, and this is where SIs excel:
 
 1. Go interfaces, _extreme_ flexibility
-2. Max resources per instance is the host resources
-3. Get full OS underneath
+2. Max resources per instance is the host's resources
+3. Get a full OS underneath
 4. Run anywhere (in your api, airgapped, separate service)
 5. Connect to existing DB for persistence (all your data in one spot)
-6. Better alarms
+6. [Better alarms](#alarms)
 7. Use any networking: TCP, UDP, GRPC, HTTP/(1,2,3)
 8. Unlimited concurrent connections: DO's have a _hard_ 32k limit (I've hit it in production)
 9. Cheaper per-unit cost of runtime and requests at scale
@@ -63,7 +63,7 @@ The `AlarmManager` is an interface that implements a few functions for persistin
 
 Alarms are managed per-shard, and mostly write to the database (creation and deletion). Reads only occur when a node restarts and needs to read in any previously created alarms.
 
-Unlike DurableObjects, alarms are a bit more capable in StableInterfaces. Each alarm has an `ID` and `Meta` available to it. This means you can make multiple alarms at the same time, which will fire off in (time, ID) order. `Meta` is a `map[string]any`, so you can attach metadata to your alarm to know what it's for. This is a simple durable pattern for background processing.
+Unlike DurableObjects, alarms are a bit more capable in StableInterfaces. Each alarm has an `ID` and `Meta` available to it. This means you can make multiple alarms at the same time, which will fire off in (time, ID) order. `Meta` is a `map[string]any`, so you can attach metadata to your alarm to know what it's for. You can also list, update, and cancel alarms. This is a simple durable pattern for background processing.
 
 By default, alarms will be tested for every 150 milliseconds. You can override this with the `WithAlarmCheckInterval()` option. The reason we do this instead of using `time.Timer` is because that creates a goroutine for each alarm. Additionally, alarms are handled sequentially, one at a time. This interval is only used between checks of no active alarms. If an alarm fires, the handler is launched in a goroutine and another alarm is immediately checked for.
 

@@ -43,7 +43,7 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 			return ti.internalID, nil
 		case testInstructionDoAlarm:
 			responseChan := make(chan any)
-			err := c.SetAlarm(c.Context, map[string]any{
+			err := c.SetAlarm(c.Context, genRandomID(""), map[string]any{
 				testAlarmChannelKey: responseChan,
 			}, time.Now().Add(time.Millisecond*300))
 			if err != nil {
