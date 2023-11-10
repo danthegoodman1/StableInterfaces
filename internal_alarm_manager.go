@@ -74,7 +74,7 @@ func (iam *internalAlarmManager) launchPollAlarms() {
 }
 
 func formatAlarmIndexKey(firesAt time.Time, id string) string {
-	return fmt.Sprintf("%s::%s", string(firesAt.UnixMilli()), id)
+	return fmt.Sprintf("%s::%s", fmt.Sprint(firesAt.UnixMilli()), id)
 }
 
 func (iam *internalAlarmManager) checkAlarms() {
@@ -96,7 +96,7 @@ func (iam *internalAlarmManager) checkAlarms() {
 	if err != nil {
 		if nextAlarm.Attempt < iam.InterfaceManager.maxAlarmAttempts {
 			// Increment the attempts, update the memory fires at, and retry
-			iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID), err)
+			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID), err)
 			nextAlarm.Attempt++
 			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
 			iam.ReplaceAlarm(nextAlarm)

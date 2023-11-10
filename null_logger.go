@@ -12,7 +12,7 @@ type (
 
 func (dl *NullLogger) Debug(_ string)          {}
 func (dl *NullLogger) Info(_ string)           {}
-func (dl *NullLogger) Warn(_ string)           {}
+func (dl *NullLogger) Warn(_ string, _ error)  {}
 func (dl *NullLogger) Error(_ string, _ error) {}
 func (dl *NullLogger) Fatal(msg string, err error) {
 	log.Println("StableInterface FTL:", msg, "--", err)

@@ -27,8 +27,8 @@ func (dl *DefaultLogger) Info(msg string) {
 	dl.logLevel(slog.LevelInfo, msg, nil)
 }
 
-func (dl *DefaultLogger) Warn(msg string) {
-	dl.logLevel(slog.LevelWarn, msg, nil)
+func (dl *DefaultLogger) Warn(msg string, err error) {
+	dl.logLevel(slog.LevelWarn, msg, err)
 }
 
 func (dl *DefaultLogger) Error(msg string, err error) {

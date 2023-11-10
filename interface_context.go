@@ -40,7 +40,10 @@ func (ic *InterfaceContext) SetAlarm(ctx context.Context, id string, meta map[st
 		return ErrInternalAlarmManagerNotFound
 	}
 
-	iam.SetAlarm(stored)
+	iam.SetAlarm(wrappedStoredAlarm{
+		StoredAlarm: stored,
+		Attempt:     0,
+	})
 
 	return nil
 }
