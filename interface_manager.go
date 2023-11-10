@@ -205,9 +205,10 @@ func (im *InterfaceManager) Request(ctx context.Context, id string, payload any)
 
 func (im *InterfaceManager) makeInterfaceContext(internalID string, ctx context.Context) InterfaceContext {
 	return InterfaceContext{
-		Context:          ctx,
-		Shard:            instanceInternalIDToShard(internalID, int(im.numShards)),
-		interfaceManager: im,
+		Context:            ctx,
+		Shard:              instanceInternalIDToShard(internalID, int(im.numShards)),
+		interfaceManager:   im,
+		InternalInstanceID: internalID,
 	}
 }
 
@@ -220,7 +221,8 @@ func (im *InterfaceManager) makeInterfaceContext(internalID string, ctx context.
 // Shutdown shuts down the entire interface manager
 // func (im *InterfaceManager) Shutdown(ctx context.Context) error {
 // 	// TODO
-//  // TODO: Kill the alarm ticker
+//  // TODO: Shutdown all alarm managers
+//  // TODO: Shutdown all connections on all instances
 // }
 
 // Connect connects to an instance for persistent duplex communication.

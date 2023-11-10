@@ -45,7 +45,7 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 			responseChan := make(chan any)
 			err := c.SetAlarm(c.Context, map[string]any{
 				testAlarmChannelKey: responseChan,
-			}, time.Now().Add(time.Millisecond*100))
+			}, time.Now().Add(time.Millisecond*300))
 			if err != nil {
 				return nil, fmt.Errorf("error in SetAlarm: %w", err)
 			}
@@ -316,6 +316,7 @@ func TestWithAlarm(t *testing.T) {
 		t.Fatal("did not get back a chan any")
 	}
 
+	t.Log("waiting on channel for alarm to fire")
 	select {
 	case <-alarmChan:
 		break

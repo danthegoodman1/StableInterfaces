@@ -12,7 +12,8 @@ type (
 
 		Shard uint32
 
-		interfaceManager *InterfaceManager
+		interfaceManager   *InterfaceManager
+		InternalInstanceID string
 	}
 )
 
@@ -25,12 +26,13 @@ func (ic *InterfaceContext) SetAlarm(ctx context.Context, meta map[string]any, a
 		return ErrInterfaceManagerNotWithAlarm
 	}
 
-	alarmID := genRandomID("alrm_")
+	alarmID := genRandomID("")
 	stored := StoredAlarm{
-		ID:      alarmID,
-		Meta:    meta,
-		Created: time.Now(),
-		Fires:   at,
+		ID:                          alarmID,
+		Meta:                        meta,
+		Created:                     time.Now(),
+		Fires:                       at,
+		InterfaceInstanceInternalID: ic.InternalInstanceID,
 	}
 	err := ic.interfaceManager.alarmManager.SetAlarm(ctx, ic.Shard, stored)
 	if err != nil {

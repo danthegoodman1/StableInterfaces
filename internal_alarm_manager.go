@@ -63,13 +63,15 @@ func (iam *internalAlarmManager) launchPollAlarms() {
 	}
 
 	ticker := time.NewTicker(deref(iam.InterfaceManager.alarmCheckInterval, DefaultAlarmCheckInterval))
-	select {
-	case <-ticker.C:
-		iam.checkAlarms()
+	for {
+		select {
+		case <-ticker.C:
+			iam.checkAlarms()
 
-	case <-iam.StopChan:
-		ticker.Stop()
-		return
+		case <-iam.StopChan:
+			ticker.Stop()
+			return
+		}
 	}
 }
 
@@ -83,7 +85,6 @@ func (iam *internalAlarmManager) checkAlarms() {
 	if nextAlarm == nil {
 		return
 	}
-	// fmt.Println(iam.InterfaceManager)
 	iam.InterfaceManager.logger.Debug("got an alarm!")
 
 	// Execute the alarm
@@ -128,7 +129,7 @@ func (iam *internalAlarmManager) getNextAlarm() (nextAlarm *wrappedStoredAlarm) 
 	nowID := formatAlarmIndexKey(time.Now(), "")
 	iam.alarmIndex.Scan(func(key string, value *wrappedStoredAlarm) bool {
 		// Only get one
-		if key < nowID {
+		if key <= nowID {
 			nextAlarm = value
 			return false
 		}
