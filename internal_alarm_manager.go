@@ -96,13 +96,13 @@ func (iam *internalAlarmManager) checkAlarms() {
 	if err != nil {
 		if nextAlarm.Attempt < iam.InterfaceManager.maxAlarmAttempts {
 			// Increment the attempts, update the memory fires at, and retry
-			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID))
+			iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID), err)
 			nextAlarm.Attempt++
 			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
 			iam.ReplaceAlarm(nextAlarm)
 		}
 
-		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff, aborting", nextAlarm.StoredAlarm.ID), nil)
+		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff, aborting", nextAlarm.StoredAlarm.ID), err)
 		// We are done
 		doneReason = AlarmMaxRetriesExceeded
 	}
