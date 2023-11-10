@@ -101,8 +101,9 @@ type TestInterfaceWithAlarm struct {
 	TestInterface
 }
 
-func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContext, alarmID string, alarmMeta map[string]any) {
+func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContext, alarmID string, alarmMeta map[string]any) error {
 	fmt.Printf("Test interface %s got alarm %s\n", tia.internalID, alarmID)
+	return nil
 }
 
 func TestRequest(t *testing.T) {

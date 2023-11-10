@@ -1,6 +1,7 @@
 package stableinterfaces
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/tidwall/btree"
@@ -13,8 +14,14 @@ type (
 		InterfaceManager        *InterfaceManager
 		Shard                   uint32
 		StopChan                chan any
-		idIndex, alarmIndex     btree.Map[string, *StoredAlarm]
+		idIndex, alarmIndex     btree.Map[string, *wrappedStoredAlarm]
 		idIndexMu, alarmIndexMu *sync.Mutex
+		alarmHandlerTimeout     *time.Duration
+	}
+
+	wrappedStoredAlarm struct {
+		StoredAlarm StoredAlarm
+		Attempt     int
 	}
 )
 
@@ -28,10 +35,10 @@ func newInternalAlarmManager(shard uint32, im *InterfaceManager) *internalAlarmM
 		Shard:            shard,
 		StopChan:         make(chan any, 1),
 		// Lookup by ID
-		idIndex:   btree.Map[string, *StoredAlarm]{},
+		idIndex:   btree.Map[string, *wrappedStoredAlarm]{},
 		idIndexMu: &sync.Mutex{},
 		// Ordered by Fires, ID
-		alarmIndex:   btree.Map[string, *StoredAlarm]{},
+		alarmIndex:   btree.Map[string, *wrappedStoredAlarm]{},
 		alarmIndexMu: &sync.Mutex{},
 	}
 }
@@ -45,8 +52,14 @@ func (iam *internalAlarmManager) launchPollAlarms() {
 	}
 
 	for _, storedAlarm := range storedAlarms {
-		iam.idIndex.Set(storedAlarm.ID, &storedAlarm)
-		iam.alarmIndex.Set(formatAlarmIndexKey(storedAlarm.Fires, storedAlarm.ID), &storedAlarm)
+		iam.idIndex.Set(storedAlarm.ID, &wrappedStoredAlarm{
+			StoredAlarm: storedAlarm,
+			Attempt:     0,
+		})
+		iam.alarmIndex.Set(formatAlarmIndexKey(storedAlarm.Fires, storedAlarm.ID), &wrappedStoredAlarm{
+			StoredAlarm: storedAlarm,
+			Attempt:     0,
+		})
 	}
 
 	ticker := time.NewTicker(deref(iam.InterfaceManager.alarmCheckInterval, DefaultAlarmCheckInterval))
@@ -65,25 +78,79 @@ func formatAlarmIndexKey(firesAt time.Time, id string) string {
 }
 
 func (iam *internalAlarmManager) checkAlarms() {
-	// TODO: Check for the next alarm
-	// TODO: Remove from indexes
+	// Check for the next alarm
+	nextAlarm := iam.getNextAlarm()
+	if nextAlarm != nil {
+		iam.InterfaceManager.logger.Debug("did not get a next alarm")
+		return
+	}
+	iam.InterfaceManager.logger.Debug("got an alarm!")
+
+	// Execute the alarm
+	ctx, cancel := context.WithTimeout(context.Background(), deref(iam.InterfaceManager.onAlarmTimeout, DefaultOnAlarmTimeout))
+	defer cancel()
+
+	doneReason := AlarmSuccessful
+
+	err := iam.InterfaceManager.onAlarm(ctx, nextAlarm.StoredAlarm)
+	if err != nil {
+		if nextAlarm.Attempt < iam.InterfaceManager.maxAlarmAttempts {
+			// Increment the attempts, update the memory fires at, and retry
+			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID))
+			nextAlarm.Attempt++
+			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
+			iam.ReplaceAlarm(nextAlarm)
+		}
+
+		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff, aborting", nextAlarm.StoredAlarm.ID), nil)
+		// We are done
+		doneReason = AlarmMaxRetriesExceeded
+	}
+
+	// Remove from indexes
+	iam.DeleteAlarm(nextAlarm.StoredAlarm.ID)
+
+	// Remove from storage
+	ctx, cancel = context.WithTimeout(context.Background(), deref(iam.InterfaceManager.modifyAlarmTimeout, DefaultModifyAlarmTimeout))
+	defer cancel()
+
+	err = iam.InterfaceManager.alarmManager.MarkAlarmDone(ctx, iam.Shard, nextAlarm.StoredAlarm.ID, doneReason)
+	if err != nil {
+		iam.InterfaceManager.logger.Error(fmt.Sprintf("failed to marl alarm '%s' successful", nextAlarm.StoredAlarm.ID), err)
+	}
 }
 
-func (iam *internalAlarmManager) SetAlarm(alarm StoredAlarm) {
+func (iam *internalAlarmManager) getNextAlarm() (nextAlarm *wrappedStoredAlarm) {
+	iam.alarmIndexMu.Lock()
+	defer iam.alarmIndexMu.Unlock()
+	// Current id to compare
+	nowID := formatAlarmIndexKey(time.Now(), "")
+	iam.alarmIndex.Scan(func(key string, value *wrappedStoredAlarm) bool {
+		// Only get one
+		if key < nowID {
+			nextAlarm = value
+			return false
+		}
+		return true
+	})
+	return
+}
+
+func (iam *internalAlarmManager) SetAlarm(alarm wrappedStoredAlarm) {
 	iam.setIDIndex(alarm)
 	iam.setAlarmIndex(alarm)
 }
 
-func (iam *internalAlarmManager) setIDIndex(alarm StoredAlarm) {
+func (iam *internalAlarmManager) setIDIndex(alarm wrappedStoredAlarm) {
 	iam.idIndexMu.Lock()
 	defer iam.idIndexMu.Unlock()
-	iam.idIndex.Set(alarm.ID, &alarm)
+	iam.idIndex.Set(alarm.StoredAlarm.ID, &alarm)
 }
 
-func (iam *internalAlarmManager) setAlarmIndex(alarm StoredAlarm) {
+func (iam *internalAlarmManager) setAlarmIndex(alarm wrappedStoredAlarm) {
 	iam.alarmIndexMu.Lock()
 	defer iam.alarmIndexMu.Unlock()
-	iam.alarmIndex.Set(formatAlarmIndexKey(alarm.Fires, alarm.ID), &alarm)
+	iam.alarmIndex.Set(formatAlarmIndexKey(alarm.StoredAlarm.Fires, alarm.StoredAlarm.ID), &alarm)
 }
 
 func (iam *internalAlarmManager) DeleteAlarm(alarmID string) {
@@ -101,12 +168,17 @@ func (iam *internalAlarmManager) deleteIDIndex(alarmID string) *time.Time {
 	if !found {
 		return nil
 	}
-	iam.idIndex.Delete(alarm.ID)
-	return &alarm.Fires
+	iam.idIndex.Delete(alarm.StoredAlarm.ID)
+	return &alarm.StoredAlarm.Fires
 }
 
 func (iam *internalAlarmManager) deleteAlarmIndex(alarmID string, fires time.Time) {
 	iam.alarmIndexMu.Lock()
 	defer iam.alarmIndexMu.Unlock()
 	iam.alarmIndex.Delete(formatAlarmIndexKey(fires, alarmID))
+}
+
+func (iam *internalAlarmManager) ReplaceAlarm(alarm *wrappedStoredAlarm) {
+	iam.DeleteAlarm(alarm.StoredAlarm.ID)
+	iam.SetAlarm(*alarm)
 }

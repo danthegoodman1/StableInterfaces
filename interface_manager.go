@@ -29,7 +29,12 @@ type (
 		alarmCheckInterval    *time.Duration
 		internalAlarmManagers syncx.Map[uint32, *internalAlarmManager]
 		getAlarmsTimeout      *time.Duration
-		logger                Logger
+		onAlarmTimeout        *time.Duration
+		modifyAlarmTimeout    *time.Duration
+		alarmRetryBackoff     *time.Duration
+		maxAlarmAttempts      int
+
+		logger Logger
 	}
 
 	// InterfaceSpawner should return a pointer to a StableInterface
@@ -39,6 +44,10 @@ type (
 const (
 	DefaultAlarmCheckInterval = time.Millisecond * 150
 	DefaultAlarmCheckTimeout  = time.Second * 5
+	DefaultOnAlarmTimeout     = time.Second * 5
+	DefaultModifyAlarmTimeout = time.Second * 5
+	DefaultMaxAlarmAttempt    = 5
+	DefaultMaxAlarmBackoff    = time.Millisecond * 100
 )
 
 var (
@@ -61,6 +70,7 @@ func NewInterfaceManager(hostID string, hostExpansion string, numShards uint32, 
 		numShards:        numShards,
 		myShards:         []uint32{},
 		logger:           &DefaultLogger{},
+		maxAlarmAttempts: DefaultMaxAlarmAttempt,
 	}
 
 	var err error
@@ -263,4 +273,23 @@ func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error)
 	ctx, cancel := context.WithTimeout(context.Background(), deref(im.getAlarmsTimeout, DefaultAlarmCheckTimeout))
 	defer cancel()
 	return im.alarmManager.GetNextAlarms(ctx, shard)
+}
+
+func (im *InterfaceManager) onAlarm(ctx context.Context, alarm StoredAlarm) error {
+	instance, err := im.getOrMakeInstance(alarm.InterfaceInstanceInternalID)
+	if err != nil {
+		return fmt.Errorf("error in getOrMakeInstance: %w", err)
+	}
+
+	alarmInstance, ok := (*instance).(StableInterfaceWithAlarm)
+	if !ok {
+		return fmt.Errorf("%w -- this is a bug, please report", ErrInterfaceNotWithAlarm)
+	}
+
+	err = alarmInstance.OnAlarm(im.makeInterfaceContext(alarm.InterfaceInstanceInternalID, ctx), alarm.ID, alarm.Meta)
+	if err != nil {
+		return fmt.Errorf("error in OnAlarm: %w", err)
+	}
+
+	return nil
 }

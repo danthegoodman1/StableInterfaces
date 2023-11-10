@@ -50,6 +50,34 @@ func WithGetAlarmsTimeout(duration time.Duration) InterfaceManagerOption {
 	}
 }
 
+func WithOnAlarmTimeout(duration time.Duration) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.onAlarmTimeout = &duration
+		return nil
+	}
+}
+
+func WithModifyAlarmTimeout(duration time.Duration) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.modifyAlarmTimeout = &duration
+		return nil
+	}
+}
+
+func WithAlarmRetryBackoff(duration time.Duration) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.alarmRetryBackoff = &duration
+		return nil
+	}
+}
+
+func WithMaxAlarmAttempts(attempts int) InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		manager.maxAlarmAttempts = attempts
+		return nil
+	}
+}
+
 func WithLogger(logger Logger) InterfaceManagerOption {
 	return func(manager *InterfaceManager) error {
 		manager.logger = logger
