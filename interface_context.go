@@ -3,6 +3,7 @@ package stableinterfaces
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"time"
 )
 
@@ -55,19 +56,28 @@ func (ic *InterfaceContext) CancelAlarm(ctx context.Context, alarmID string) err
 		return ErrInterfaceManagerNotWithAlarm
 	}
 
-	// Delete from memory
-	iam, found := ic.interfaceManager.internalAlarmManagers.Load(ic.Shard)
-	if !found {
-		return ErrInternalAlarmManagerNotFound
-	}
+	// Run concurrently because we don't want in-mem to fire while we are editing
+	// The AlarmManager can choose to implement retries/background,
+	// and the interface can decide to panic
+	g := errgroup.Group{}
+	g.Go(func() error {
+		// Delete from memory
+		iam, found := ic.interfaceManager.internalAlarmManagers.Load(ic.Shard)
+		if !found {
+			return ErrInternalAlarmManagerNotFound
+		}
 
-	iam.DeleteAlarm(alarmID)
+		iam.DeleteAlarm(alarmID)
+		return nil
+	})
+	g.Go(func() error {
+		// Delete from storage
+		err := ic.interfaceManager.alarmManager.MarkAlarmDone(ctx, ic.Shard, alarmID, AlarmCanceled)
+		if err != nil {
+			return fmt.Errorf("error in MarkAlarmDone: %w", err)
+		}
+		return nil
+	})
 
-	// Delete from storage
-	err := ic.interfaceManager.alarmManager.MarkAlarmDone(ctx, ic.Shard, alarmID, AlarmCanceled)
-	if err != nil {
-		return fmt.Errorf("error in MarkAlarmDone: %w", err)
-	}
-
-	return nil
+	return g.Wait()
 }
