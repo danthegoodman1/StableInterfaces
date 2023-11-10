@@ -80,10 +80,10 @@ func formatAlarmIndexKey(firesAt time.Time, id string) string {
 func (iam *internalAlarmManager) checkAlarms() {
 	// Check for the next alarm
 	nextAlarm := iam.getNextAlarm()
-	if nextAlarm != nil {
-		iam.InterfaceManager.logger.Debug("did not get a next alarm")
+	if nextAlarm == nil {
 		return
 	}
+	// fmt.Println(iam.InterfaceManager)
 	iam.InterfaceManager.logger.Debug("got an alarm!")
 
 	// Execute the alarm
@@ -100,6 +100,7 @@ func (iam *internalAlarmManager) checkAlarms() {
 			nextAlarm.Attempt++
 			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
 			iam.ReplaceAlarm(nextAlarm)
+			return
 		}
 
 		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff, aborting", nextAlarm.StoredAlarm.ID), err)

@@ -43,7 +43,7 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 			return ti.internalID, nil
 		case testInstructionDoAlarm:
 			responseChan := make(chan any)
-			err := c.SetAlarm(c.Context, genRandomID("alarm_"), map[string]any{
+			err := c.SetAlarm(c.Context, map[string]any{
 				testAlarmChannelKey: responseChan,
 			}, time.Now().Add(time.Millisecond*100))
 			if err != nil {
@@ -103,6 +103,8 @@ type TestInterfaceWithAlarm struct {
 
 func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContext, alarmID string, alarmMeta map[string]any) error {
 	fmt.Printf("Test interface %s got alarm %s\n", tia.internalID, alarmID)
+	resChan := alarmMeta[testAlarmChannelKey].(chan any)
+	resChan <- nil
 	return nil
 }
 
