@@ -32,7 +32,7 @@ func TestMurmurDistribution(t *testing.T) {
 	limit := 1_000_000
 	even := 0
 	for i := 0; i < limit; i++ {
-		if (Murmur2([]byte(genRandomID(""))))%2 == 0 {
+		if (Murmur2([]byte(genRandomID("user::some-service-thing"))))%2 == 0 {
 			even++
 		}
 	}
