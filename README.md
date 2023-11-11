@@ -65,6 +65,9 @@ Alarms are managed per-shard, and mostly write to the database (creation and del
 
 Unlike DurableObjects, alarms are a bit more capable in StableInterfaces. Each alarm has an `ID` and `Meta` available to it. This means you can make multiple alarms at the same time, which will fire off in (time, ID) order. `Meta` is a `map[string]any`, so you can attach metadata to your alarm to know what it's for. You can also list, update, and cancel alarms. This is a simple durable pattern for background processing.
 
-By default, alarms will be tested for every 150 milliseconds. You can override this with the `WithAlarmCheckInterval()` option. The reason we do this instead of using `time.Timer` is because that creates a goroutine for each alarm. Additionally, alarms are handled sequentially, one at a time. This interval is only used between checks of no active alarms. If an alarm fires, the handler is launched in a goroutine and another alarm is immediately checked for.
+By default, alarms will be tested for every 150 milliseconds. You can override this with the `WithAlarmCheckInterval()` option. Alarms are handled sequentially, one at a time. This interval is only used between checks of no active alarms. If an alarm fires, the handler is launched in a goroutine and the alarm check immediately runs.
+
+Alarms also have configurable backoff as well, see [interface_manager_options.go](interface_manager_options.go).
+
 
 It's important to note that when started, every shard will query the AlarmManager for the latest alarms. You may want to introduce some form of rate limiting if you are unable to handle the burst of query activity. See https://github.com/danthegoodman1/StableInterfaces/issues/3#issuecomment-1804756669 for more. It currently loads all pending alarms in memory, so make sure you don't have _billions_ of alarms. Each alarm is lightweight (just a struct in a tree), so the only thing you have to worry about is memory size.
