@@ -27,3 +27,16 @@ func TestExpansionNotation(t *testing.T) {
 		t.Fatal("mismatched IDs")
 	}
 }
+
+func TestMurmurDistribution(t *testing.T) {
+	limit := 1_000_000
+	even := 0
+	for i := 0; i < limit; i++ {
+		if (Murmur2([]byte(genRandomID(""))))%2 == 0 {
+			even++
+		}
+	}
+
+	odd := limit - even
+	t.Logf("Even: %d -- Odd: %d -- Spread %f%%", even, odd, float64(even)*100/float64(limit))
+}
