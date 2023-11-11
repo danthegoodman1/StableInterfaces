@@ -2,8 +2,8 @@ package stableinterfaces
 
 import (
 	"context"
+	"github.com/danthegoodman1/stableinterfaces/syncx"
 	"github.com/tidwall/btree"
-	"stableinterfaces/syncx"
 )
 
 type (

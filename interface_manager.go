@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"stableinterfaces/syncx"
+	"github.com/danthegoodman1/stableinterfaces/syncx"
 	"time"
 )
 
