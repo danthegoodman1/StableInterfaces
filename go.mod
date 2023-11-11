@@ -1,4 +1,4 @@
-module stableinterfaces
+module github.com/danthegoodman1/stableinterfaces
 
 go 1.21.0
 
