@@ -277,8 +277,8 @@ func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error)
 	return im.alarmManager.GetNextAlarms(ctx, shard)
 }
 
-func (im *InterfaceManager) onAlarm(ctx context.Context, alarm StoredAlarm) error {
-	instance, err := im.getOrMakeInstance(alarm.InterfaceInstanceInternalID)
+func (im *InterfaceManager) onAlarm(ctx context.Context, alarm wrappedStoredAlarm) error {
+	instance, err := im.getOrMakeInstance(alarm.StoredAlarm.InterfaceInstanceInternalID)
 	if err != nil {
 		return fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
@@ -288,7 +288,10 @@ func (im *InterfaceManager) onAlarm(ctx context.Context, alarm StoredAlarm) erro
 		return fmt.Errorf("%w -- this is a bug, please report", ErrInterfaceNotWithAlarm)
 	}
 
-	err = alarmInstance.OnAlarm(im.makeInterfaceContext(alarm.InterfaceInstanceInternalID, ctx), alarm.ID, alarm.Meta)
+	err = alarmInstance.OnAlarm(InterfaceContextWithAttempt{
+		InterfaceContext: im.makeInterfaceContext(alarm.StoredAlarm.InterfaceInstanceInternalID, ctx),
+		Attempt:          alarm.Attempt,
+	}, alarm.StoredAlarm.ID, alarm.StoredAlarm.Meta)
 	if err != nil {
 		return fmt.Errorf("error in OnAlarm: %w", err)
 	}

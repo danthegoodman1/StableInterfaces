@@ -66,7 +66,10 @@ func (iam *internalAlarmManager) launchPollAlarms() {
 	for {
 		select {
 		case <-ticker.C:
-			iam.checkAlarms()
+			handledAlarm := true
+			for handledAlarm {
+				handledAlarm = iam.checkAlarms()
+			}
 
 		case <-iam.StopChan:
 			ticker.Stop()
@@ -79,11 +82,11 @@ func formatAlarmIndexKey(firesAt time.Time, id string) string {
 	return fmt.Sprintf("%s::%s", fmt.Sprint(firesAt.UnixMilli()), id)
 }
 
-func (iam *internalAlarmManager) checkAlarms() {
+func (iam *internalAlarmManager) checkAlarms() bool {
 	// Check for the next alarm
 	nextAlarm := iam.getNextAlarm()
 	if nextAlarm == nil {
-		return
+		return false
 	}
 	iam.InterfaceManager.logger.Debug("got an alarm!")
 
@@ -93,18 +96,18 @@ func (iam *internalAlarmManager) checkAlarms() {
 
 	doneReason := AlarmSuccessful
 
-	err := iam.InterfaceManager.onAlarm(ctx, nextAlarm.StoredAlarm)
+	err := iam.InterfaceManager.onAlarm(ctx, *nextAlarm)
 	if err != nil {
-		if nextAlarm.Attempt < iam.InterfaceManager.maxAlarmAttempts {
+		if nextAlarm.Attempt <= iam.InterfaceManager.maxAlarmAttempts {
 			// Increment the attempts, update the memory fires at, and retry
-			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored, delaying", nextAlarm.StoredAlarm.ID), err)
+			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored (Attempt %d), delaying", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
 			nextAlarm.Attempt++
 			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
 			iam.ReplaceAlarm(nextAlarm)
-			return
+			return true
 		}
 
-		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff, aborting", nextAlarm.StoredAlarm.ID), err)
+		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff (Attempt %d), aborting", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
 		// We are done
 		doneReason = AlarmMaxRetriesExceeded
 	}
@@ -120,6 +123,7 @@ func (iam *internalAlarmManager) checkAlarms() {
 	if err != nil {
 		iam.InterfaceManager.logger.Error(fmt.Sprintf("failed to marl alarm '%s' successful", nextAlarm.StoredAlarm.ID), err)
 	}
+	return true
 }
 
 func (iam *internalAlarmManager) getNextAlarm() (nextAlarm *wrappedStoredAlarm) {

@@ -16,6 +16,11 @@ type (
 		interfaceManager   *InterfaceManager
 		InternalInstanceID string
 	}
+
+	InterfaceContextWithAttempt struct {
+		InterfaceContext
+		Attempt int
+	}
 )
 
 func (ic *InterfaceContext) SetAlarm(ctx context.Context, id string, meta map[string]any, at time.Time) error {

@@ -24,7 +24,9 @@ const (
 	testInstructionClose   = "close"
 	testInstructionDoAlarm = "alarm"
 
-	testAlarmChannelKey = "alarmChan"
+	testAlarmChannelKey   = "alarmChan"
+	testAlarmRetry        = "retry"
+	testAlarmRetryForever = "retry forever"
 )
 
 type (
@@ -42,14 +44,45 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 		case testInstructionReturnInternalID:
 			return ti.internalID, nil
 		case testInstructionDoAlarm:
-			responseChan := make(chan any)
-			err := c.SetAlarm(c.Context, genRandomID(""), map[string]any{
-				testAlarmChannelKey: responseChan,
+			responseChan1 := make(chan any)
+			responseChan2 := make(chan any)
+			responseChan3 := make(chan any)
+			responseChan4 := make(chan any)
+			alarmID := genRandomID("")
+			err := c.SetAlarm(c.Context, alarmID+"_0", map[string]any{
+				testAlarmChannelKey: responseChan1,
 			}, time.Now().Add(time.Millisecond*300))
 			if err != nil {
 				return nil, fmt.Errorf("error in SetAlarm: %w", err)
 			}
-			return responseChan, nil
+
+			//  Ensure they are sequential by ID
+			err = c.SetAlarm(c.Context, alarmID+"_1", map[string]any{
+				testAlarmChannelKey: responseChan2,
+			}, time.Now().Add(time.Millisecond*300))
+			if err != nil {
+				return nil, fmt.Errorf("error in SetAlarm: %w", err)
+			}
+
+			//  Queue another for retried
+			err = c.SetAlarm(c.Context, alarmID+"_2", map[string]any{
+				testAlarmRetry:      true,
+				testAlarmChannelKey: responseChan3,
+			}, time.Now().Add(time.Millisecond*300))
+			if err != nil {
+				return nil, fmt.Errorf("error in SetAlarm: %w", err)
+			}
+
+			//  Queue another for timeout
+			err = c.SetAlarm(c.Context, alarmID+"_4", map[string]any{
+				testAlarmRetryForever: true,
+				testAlarmChannelKey:   responseChan4,
+			}, time.Now().Add(time.Millisecond*300))
+			if err != nil {
+				return nil, fmt.Errorf("error in SetAlarm: %w", err)
+			}
+
+			return []chan any{responseChan1, responseChan2, responseChan3, responseChan4}, nil
 		default:
 			return testInstructionDefault, nil
 		}
@@ -101,8 +134,16 @@ type TestInterfaceWithAlarm struct {
 	TestInterface
 }
 
-func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContext, alarmID string, alarmMeta map[string]any) error {
-	fmt.Printf("Test interface %s got alarm %s\n", tia.internalID, alarmID)
+func (tia *TestInterfaceWithAlarm) OnAlarm(c InterfaceContextWithAttempt, alarmID string, alarmMeta map[string]any) error {
+	fmt.Printf("Test interface %s got alarm %s with attempt %d\n", tia.internalID, alarmID, c.Attempt)
+	if _, exists := alarmMeta[testAlarmRetryForever]; exists {
+		return testError
+	}
+	if _, exists := alarmMeta[testAlarmRetry]; exists {
+		if c.Attempt < 4 {
+			return testError
+		}
+	}
 	resChan := alarmMeta[testAlarmChannelKey].(chan any)
 	resChan <- nil
 	return nil
@@ -311,16 +352,48 @@ func TestWithAlarm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	alarmChan, ok := res.(chan any)
+	alarmChans, ok := res.([]chan any)
 	if !ok {
 		t.Fatal("did not get back a chan any")
 	}
 
-	t.Log("waiting on channel for alarm to fire")
 	select {
-	case <-alarmChan:
+	case <-alarmChans[0]:
 		break
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+
+	// Listen on the second one, should fire immediately because of immediate second firing for alert
+	ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond*5)
+	defer cancel()
+
+	select {
+	case <-alarmChans[1]:
+		break
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	select {
+	case <-alarmChans[2]:
+		break
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	// This isn't the greatest test or checking max backoff
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+	select {
+	case <-alarmChans[3]:
+		t.Fatal("got the alarm?")
+	case <-ctx.Done():
+		err = ctx.Err()
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("got some other error:", err)
+		}
 	}
 }

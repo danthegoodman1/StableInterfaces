@@ -20,7 +20,7 @@ type StableInterface interface {
 
 type StableInterfaceWithAlarm interface {
 	StableInterface
-	OnAlarm(ctx InterfaceContext, id string, meta map[string]any) error
+	OnAlarm(ctx InterfaceContextWithAttempt, id string, meta map[string]any) error
 }
 
 func wrapStableInterfaceHandlerError(err error) error {
