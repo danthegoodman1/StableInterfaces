@@ -123,12 +123,7 @@ func (im *InterfaceManager) GetHostID() string {
 }
 
 // GetHostForID returns the owning host ID of the instance ID
-func (im *InterfaceManager) GetHostForID(id string) (string, error) {
-	internalID, err := im.HashingFunction(id)
-	if err != nil {
-		return "", fmt.Errorf("error in HashingFunction: %w", err)
-	}
-
+func (im *InterfaceManager) GetHostForInternalID(internalID string) (string, error) {
 	shard := instanceInternalIDToShard(internalID, int(im.numShards))
 	host, found := im.shardsToHost.Load(shard)
 	if !found {
@@ -136,19 +131,6 @@ func (im *InterfaceManager) GetHostForID(id string) (string, error) {
 	}
 
 	return host, nil
-}
-
-func (im *InterfaceManager) verifyHostOwnership(id string) error {
-	// Hash ID and make sure we own the shard
-	hostForID, err := im.GetHostForID(id)
-	if err != nil {
-		return fmt.Errorf("error in GetHostForID: %w", err)
-	}
-
-	if hostForID != im.hostID {
-		return ErrHostDoesNotOwnShard
-	}
-	return nil
 }
 
 func (im *InterfaceManager) getOrMakeInstance(internalID string) (*StableInterface, error) {
@@ -179,17 +161,21 @@ func (im *InterfaceManager) GetInternalID(id string) (string, error) {
 
 // Request invokes a request-response like interaction with an instance of a stable interface.
 // It will create the interface if it is not started or has yet to exist.
-func (im *InterfaceManager) Request(ctx context.Context, id string, payload any) (any, error) {
+func (im *InterfaceManager) Request(ctx context.Context, instanceID string, payload any) (any, error) {
 	// Hash ID and make sure we own the shard
-	if err := im.verifyHostOwnership(id); err != nil {
-		return nil, fmt.Errorf("error in verifyHostOwnership: %w", err)
-	}
-
-	internalID, err := im.GetInternalID(id)
+	internalID, err := im.GetInternalID(instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("error in GetInternalID: %w", err)
 	}
 
+	hostForID, err := im.GetHostForInternalID(internalID)
+	if err != nil {
+		return nil, fmt.Errorf("error in GetHostForID: %w", err)
+	}
+
+	if hostForID != im.hostID {
+		return nil, ErrHostDoesNotOwnShard
+	}
 	instance, err := im.getOrMakeInstance(internalID)
 	if err != nil {
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
@@ -228,14 +214,19 @@ func (im *InterfaceManager) makeInterfaceContext(internalID string, ctx context.
 // Connect connects to an instance for persistent duplex communication.
 // The recvHandler parameter will receive (blocking) messages when an instance sends a message to that, so you probably want to launch a goroutine for concurrency.
 // The returned MsgHandler can be invoked when you want to send a message to the instance
-func (im *InterfaceManager) Connect(ctx context.Context, id string, meta map[string]any) (*InterfaceConnection, error) {
-	if err := im.verifyHostOwnership(id); err != nil {
-		return nil, fmt.Errorf("error in verifyHostOwnership: %w", err)
-	}
-
-	internalID, err := im.GetInternalID(id)
+func (im *InterfaceManager) Connect(ctx context.Context, instanceID string, meta map[string]any) (*InterfaceConnection, error) {
+	internalID, err := im.GetInternalID(instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("error in GetInternalID: %w", err)
+	}
+
+	hostForID, err := im.GetHostForInternalID(internalID)
+	if err != nil {
+		return nil, fmt.Errorf("error in GetHostForID: %w", err)
+	}
+
+	if hostForID != im.hostID {
+		return nil, ErrHostDoesNotOwnShard
 	}
 
 	instance, err := im.getOrMakeInstance(internalID)
@@ -297,4 +288,23 @@ func (im *InterfaceManager) onAlarm(ctx context.Context, alarm wrappedStoredAlar
 	}
 
 	return nil
+}
+
+func (im *InterfaceManager) IsInstanceRunning(instanceID string) (bool, error) {
+	internalID, err := im.GetInternalID(instanceID)
+	if err != nil {
+		return false, fmt.Errorf("error in GetInternalID: %w", err)
+	}
+
+	hostForID, err := im.GetHostForInternalID(internalID)
+	if err != nil {
+		return false, fmt.Errorf("error in GetHostForID: %w", err)
+	}
+
+	if hostForID != im.hostID {
+		return false, ErrHostDoesNotOwnShard
+	}
+
+	_, exists := im.instances.Load(internalID)
+	return exists, nil
 }

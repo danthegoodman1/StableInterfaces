@@ -161,10 +161,24 @@ func TestRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	im2, err := NewInterfaceManager("host-1", "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterface{
+			internalID: internalID,
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	t.Logf("My shards: %+v", im.myShards)
 
 	// Check hosts
-	instanceHost, err := im.GetHostForID(id)
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	instanceHost, err := im.GetHostForInternalID(internalID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,10 +186,13 @@ func TestRequest(t *testing.T) {
 		t.Fatalf("got mismatched hosts %s and %s", host, instanceHost)
 	}
 
-	// Check id
-	internalID, err := im.GetInternalID(id)
+	// Verify the other host says the same
+	instanceHost, err = im2.GetHostForInternalID(internalID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if instanceHost != host {
+		t.Fatalf("got mismatched hosts %s and %s", host, instanceHost)
 	}
 
 	res, err := im.Request(context.Background(), id, testInstructionReturnInternalID)
