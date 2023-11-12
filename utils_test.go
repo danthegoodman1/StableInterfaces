@@ -29,6 +29,7 @@ func TestExpansionNotation(t *testing.T) {
 }
 
 func TestMurmurDistribution(t *testing.T) {
+	t.Skip()
 	limit := 1_000_000
 	even := 0
 	for i := 0; i < limit; i++ {

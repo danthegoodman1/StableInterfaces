@@ -219,6 +219,14 @@ func TestRequest(t *testing.T) {
 	if !errors.Is(err, ErrHostDoesNotOwnShard) {
 		t.Fatal("did not get host does not own shard")
 	}
+
+	// Shut it down
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*5)
+	defer cancel()
+	err = im.ShutdownInstance(ctx, internalID)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestConnect(t *testing.T) {
@@ -255,6 +263,10 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	closeChan := make(chan any)
+	ic.AddOnCloseListener(func() {
+		closeChan <- nil
+	})
 	ic.OnRecv = func(payload any) {
 		fmt.Println("Test function got message from test interface:", payload)
 	}
@@ -284,7 +296,7 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify closing again doesn't work
+	// Verify shuttingDown again doesn't work
 	err = ic.Close()
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
@@ -308,7 +320,7 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Let's sleep to prevent hitting the context deadline due to optimistic closing
+	// Let's sleep to prevent hitting the context deadline due to optimistic shuttingDown
 	time.Sleep(time.Millisecond)
 
 	// need to wait because this might happen before it's closed
@@ -318,6 +330,64 @@ func TestConnect(t *testing.T) {
 	}
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+
+	select {
+	case <-closeChan:
+		t.Log("got close chan")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	fmt.Println("----------")
+
+	// Test shutdown
+	ic, err = im.Connect(context.Background(), id, map[string]any{
+		testMetaKey: testInstructionAccept,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log("got new conn", ic.ID, ic.closed.Load())
+
+	closeChan = make(chan any)
+	ic.AddOnCloseListener(func() {
+		closeChan <- nil
+	})
+	ic.OnRecv = func(payload any) {
+		fmt.Println("Test function got message from test interface:", payload)
+	}
+
+	// Shut it down
+	ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond*5)
+	defer cancel()
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = im.ShutdownInstance(ctx, internalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify already closed
+	err = ic.Close()
+	if !errors.Is(err, ErrConnectionClosed) {
+		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+
+	select {
+	case <-closeChan:
+		t.Log("got close chan")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+
+	// Verify it's gone
+	_, exists := im.instanceManagers.Load(internalID)
+	if exists {
+		t.Fatal("exists!")
 	}
 }
 
@@ -413,4 +483,6 @@ func TestWithAlarm(t *testing.T) {
 			t.Fatal("got some other error:", err)
 		}
 	}
+
+	// TODO: Test if an alarm after shutdown will wake it back up
 }

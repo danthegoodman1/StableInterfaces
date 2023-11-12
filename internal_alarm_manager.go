@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/tidwall/btree"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type (
 		idIndex, alarmIndex     btree.Map[string, *wrappedStoredAlarm]
 		idIndexMu, alarmIndexMu *sync.Mutex
 		alarmHandlerTimeout     *time.Duration
+
+		closed atomic.Bool
 	}
 
 	wrappedStoredAlarm struct {
@@ -40,6 +43,7 @@ func newInternalAlarmManager(shard uint32, im *InterfaceManager) *internalAlarmM
 		// Ordered by Fires, ID
 		alarmIndex:   btree.Map[string, *wrappedStoredAlarm]{},
 		alarmIndexMu: &sync.Mutex{},
+		closed:       atomic.Bool{},
 	}
 }
 
@@ -98,16 +102,17 @@ func (iam *internalAlarmManager) checkAlarms() bool {
 
 	err := iam.InterfaceManager.onAlarm(ctx, *nextAlarm)
 	if err != nil {
+		// If shuttingDown, we will just delay and retry later
 		if nextAlarm.Attempt <= iam.InterfaceManager.maxAlarmAttempts {
 			// Increment the attempts, update the memory fires at, and retry
-			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' OnAlarm errored (Attempt %d), delaying", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
+			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' Alarm errored (Attempt %d), delaying", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
 			nextAlarm.Attempt++
 			nextAlarm.StoredAlarm.Fires = nextAlarm.StoredAlarm.Fires.Add(deref(iam.InterfaceManager.alarmRetryBackoff, DefaultMaxAlarmBackoff) * time.Duration(nextAlarm.Attempt))
 			iam.ReplaceAlarm(nextAlarm)
 			return true
 		}
 
-		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' OnAlarm reached max backoff (Attempt %d), aborting", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
+		iam.InterfaceManager.logger.Error(fmt.Sprintf("alarm '%s' Alarm reached max backoff (Attempt %d), aborting", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)
 		// We are done
 		doneReason = AlarmMaxRetriesExceeded
 	}

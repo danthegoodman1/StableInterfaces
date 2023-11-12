@@ -21,7 +21,7 @@ type (
 		// Default GetInstanceID
 		HashingFunction func(string) (string, error)
 
-		instances syncx.Map[string, *StableInterface]
+		instanceManagers syncx.Map[string, *instanceManager]
 
 		interfaceSpawner InterfaceSpawner
 
@@ -56,7 +56,6 @@ var (
 	ErrReturnedNilInstance = errors.New("InterfaceSpawner returned a nil instance")
 	ErrShardNotFound       = errors.New("shard not found, there must be a bug")
 	ErrInstanceNotFound    = errors.New("instance not found")
-	ErrInstanceOnConnect   = errors.New("instance returned error during OnConnect")
 )
 
 // NewInterfaceManager makes a new interface.
@@ -133,21 +132,21 @@ func (im *InterfaceManager) GetHostForInternalID(internalID string) (string, err
 	return host, nil
 }
 
-func (im *InterfaceManager) getOrMakeInstance(internalID string) (*StableInterface, error) {
-	instance, exists := im.instances.Load(internalID)
+func (im *InterfaceManager) getOrMakeInstance(internalID string) (*instanceManager, error) {
+	manager, exists := im.instanceManagers.Load(internalID)
 	if !exists {
-		instance = ptr(im.interfaceSpawner(internalID))
-		if instance == nil {
+		manager = newInstanceManager(im, internalID, ptr(im.interfaceSpawner(internalID)))
+		if manager == nil {
 			return nil, ErrReturnedNilInstance
 		}
-		im.instances.Store(internalID, instance)
+		im.instanceManagers.Store(internalID, manager)
 	}
 
-	return instance, nil
+	return manager, nil
 }
 
 func (im *InterfaceManager) destroyInstanceIfExists(internalID string) {
-	im.instances.Delete(internalID)
+	im.instanceManagers.Delete(internalID)
 }
 
 func (im *InterfaceManager) GetInternalID(id string) (string, error) {
@@ -181,34 +180,33 @@ func (im *InterfaceManager) Request(ctx context.Context, instanceID string, payl
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	response, err := (*instance).OnRequest(im.makeInterfaceContext(internalID, ctx), payload)
+	return (*instance).Request(ctx, payload)
+}
+
+// ShutdownInstance turns off the instance if it is running, immediately disconnects connected clients,
+// and waits for Request and Alarm handlers to finish.
+// Returns ErrInstanceNotFound if not running, and ErrInstanceIsShuttingDown if already shutting down.
+func (im *InterfaceManager) ShutdownInstance(ctx context.Context, internalID string) error {
+	manager, exists := im.instanceManagers.Load(internalID)
+	if !exists {
+		return ErrInstanceNotFound
+	}
+
+	err := manager.Shutdown(ctx)
 	if err != nil {
-		return nil, wrapStableInterfaceHandlerError(err)
+		return fmt.Errorf("error in manager.Shutdown: %w", err)
 	}
 
-	return response, nil
+	// Remove from map
+	im.instanceManagers.Delete(internalID)
+	return nil
 }
-
-func (im *InterfaceManager) makeInterfaceContext(internalID string, ctx context.Context) InterfaceContext {
-	return InterfaceContext{
-		Context:            ctx,
-		Shard:              instanceInternalIDToShard(internalID, int(im.numShards)),
-		interfaceManager:   im,
-		InternalInstanceID: internalID,
-	}
-}
-
-// ShutdownInstance turns off an instance of it is running.
-// Returns ErrInstanceNotFound if not running.
-// func (im *InterfaceManager) ShutdownInstance(ctx context.Context, id string) error {
-// 	// TODO
-// }
 
 // Shutdown shuts down the entire interface manager
 // func (im *InterfaceManager) Shutdown(ctx context.Context) error {
 // 	// TODO
 //  // TODO: Shutdown all alarm managers
-//  // TODO: Shutdown all connections on all instances
+//  // TODO: Shutdown all connections on all instanceManagers
 // }
 
 // Connect connects to an instance for persistent duplex communication.
@@ -234,32 +232,7 @@ func (im *InterfaceManager) Connect(ctx context.Context, instanceID string, meta
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	connID := genRandomID("")
-	incoming := newIncomingConnection(internalID, connID, meta)
-	doneChan := make(chan any, 1)
-	go func() {
-		(*instance).OnConnect(im.makeInterfaceContext(internalID, ctx), *incoming)
-		doneChan <- nil
-	}()
-
-	var connPair *connectionPair
-	select {
-	case connPair = <-incoming.acceptChan:
-		break
-	case <-doneChan:
-		break
-	case reason := <-incoming.rejectChan:
-		return nil, fmt.Errorf("%w, reason: %w", ErrIncomingConnectionRejected, reason)
-	case <-ctx.Done():
-		return nil, fmt.Errorf("context done: %w", ctx.Err())
-	}
-
-	if connPair == nil {
-		// they did not accept or reject
-		return nil, ErrIncomingConnectionNotHandled
-	}
-
-	return &connPair.ManagerSide, nil
+	return (*instance).Connect(ctx, meta)
 }
 
 func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error) {
@@ -274,20 +247,7 @@ func (im *InterfaceManager) onAlarm(ctx context.Context, alarm wrappedStoredAlar
 		return fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	alarmInstance, ok := (*instance).(StableInterfaceWithAlarm)
-	if !ok {
-		return fmt.Errorf("%w -- this is a bug, please report", ErrInterfaceNotWithAlarm)
-	}
-
-	err = alarmInstance.OnAlarm(InterfaceContextWithAttempt{
-		InterfaceContext: im.makeInterfaceContext(alarm.StoredAlarm.InterfaceInstanceInternalID, ctx),
-		Attempt:          alarm.Attempt,
-	}, alarm.StoredAlarm.ID, alarm.StoredAlarm.Meta)
-	if err != nil {
-		return fmt.Errorf("error in OnAlarm: %w", err)
-	}
-
-	return nil
+	return instance.Alarm(ctx, alarm.Attempt, alarm.StoredAlarm.ID, alarm.StoredAlarm.Meta)
 }
 
 func (im *InterfaceManager) IsInstanceRunning(instanceID string) (bool, error) {
@@ -305,6 +265,6 @@ func (im *InterfaceManager) IsInstanceRunning(instanceID string) (bool, error) {
 		return false, ErrHostDoesNotOwnShard
 	}
 
-	_, exists := im.instances.Load(internalID)
+	_, exists := im.instanceManagers.Load(internalID)
 	return exists, nil
 }

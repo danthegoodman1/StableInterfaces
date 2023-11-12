@@ -11,7 +11,7 @@ type (
 )
 
 var (
-	ErrInterfaceNotWithAlarm        = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the OnAlarm handler")
+	ErrInterfaceNotWithAlarm        = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the Alarm handler")
 	ErrInterfaceManagerNotWithAlarm = errors.New("the interface manager does not have WithAlarm()")
 )
 
@@ -27,7 +27,7 @@ func WithAlarm(alarmManager AlarmManager) InterfaceManagerOption {
 			return fmt.Errorf("error in getOrMakeInstance: %w", err)
 		}
 		defer manager.destroyInstanceIfExists(withAlarmTestInstanceID)
-		if _, ok := (*testInterface).(StableInterfaceWithAlarm); !ok {
+		if _, ok := (*testInterface.stableInterface).(StableInterfaceWithAlarm); !ok {
 			return ErrInterfaceNotWithAlarm
 		}
 		// We are good otherwise

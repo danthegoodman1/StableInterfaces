@@ -13,7 +13,7 @@ type (
 
 func (dl *DefaultLogger) logLevel(level slog.Level, msg string, err error) {
 	if err != nil {
-		slog.Log(context.Background(), level, msg, "err", err)
+		slog.LogAttrs(context.Background(), level, msg, slog.String("err", err.Error()))
 		return
 	}
 	log.Println(level, msg)
@@ -36,6 +36,6 @@ func (dl *DefaultLogger) Error(msg string, err error) {
 }
 
 func (dl *DefaultLogger) Fatal(msg string, err error) {
-	slog.Log(context.Background(), slog.LevelError, msg, "FATAL", "t", "err", err)
+	slog.LogAttrs(context.Background(), slog.LevelError, msg, slog.Bool("FATAL", true), slog.String("err", err.Error()))
 	os.Exit(1)
 }
