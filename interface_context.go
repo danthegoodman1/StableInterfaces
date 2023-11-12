@@ -14,6 +14,7 @@ type (
 		Shard uint32
 
 		interfaceManager   *InterfaceManager
+		instanceManager    *instanceManager
 		InternalInstanceID string
 	}
 
@@ -85,3 +86,8 @@ func (ic *InterfaceContext) CancelAlarm(ctx context.Context, alarmID string) err
 
 	return g.Wait()
 }
+
+// Shutdown the instance, immediately disconnects connected clients, and waits for Request and Alarm handlers to finish
+// func (ic *InterfaceContext) Shutdown(ctx context.Context) error {
+// 	return ic.interfaceManager.ShutdownInstance(ctx, ic.InternalInstanceID)
+// }
