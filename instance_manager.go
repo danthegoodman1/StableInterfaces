@@ -79,6 +79,12 @@ func (im *instanceManager) Connect(ctx context.Context, meta map[string]any) (*I
 		// they did not accept or reject
 		return nil, ErrIncomingConnectionNotHandled
 	}
+	connPair.ManagerSide.AddOnCloseListener(func() {
+		// Remove the connection from the map
+		im.connections.Delete(connID)
+	})
+
+	im.connections.Store(connID, connPair)
 
 	return &connPair.ManagerSide, nil
 }
@@ -124,10 +130,12 @@ func (im *instanceManager) Shutdown(ctx context.Context) error {
 }
 
 func (im *instanceManager) shutdown(ctx context.Context) {
+	im.interfaceManager.logger.Debug(fmt.Sprintf("shutting down instance %s", im.internalID))
 	// Disconnect all connections
 	im.connections.Range(func(connID string, conn *connectionPair) bool {
 		err := conn.Close(ctx)
 		if err != nil {
+			fmt.Println(err, connID)
 			im.interfaceManager.logger.Error(fmt.Sprintf("failed to shutdown connection %s", conn.ID), err)
 		}
 		return true

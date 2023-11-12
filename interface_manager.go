@@ -192,7 +192,14 @@ func (im *InterfaceManager) ShutdownInstance(ctx context.Context, internalID str
 		return ErrInstanceNotFound
 	}
 
-	return manager.Shutdown(ctx)
+	err := manager.Shutdown(ctx)
+	if err != nil {
+		return fmt.Errorf("error in manager.Shutdown: %w", err)
+	}
+
+	// Remove from map
+	im.instanceManagers.Delete(internalID)
+	return nil
 }
 
 // Shutdown shuts down the entire interface manager

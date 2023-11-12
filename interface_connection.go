@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 )
 
@@ -24,7 +25,8 @@ type (
 		side interfaceConnectionSide
 
 		// OnClose is called when the connection is closed from the interface-side. This is non-blocking.
-		OnClose func()
+		onClose   []func()
+		onCloseMu *sync.Mutex
 
 		// Optimistic shuttingDown
 		closed *atomic.Bool
@@ -57,28 +59,18 @@ func launchConnectionPairListener(cp *connectionPair) {
 				go cp.InterfaceSide.OnRecv(received)
 			}
 		case <-cp.closedChan:
+			fmt.Println("got closed chan", cp.ID)
 			// Mark both sides closed
-			cp.markBothSidesClosed()
-
-			// Tell both sides they are closed
-			if cp.InterfaceSide.OnClose != nil {
-				go cp.InterfaceSide.OnClose()
-			}
-			if cp.ManagerSide.OnClose != nil {
-				go cp.ManagerSide.OnClose()
-			}
+			go cp.InterfaceSide.close()
+			go cp.ManagerSide.close()
 			return
 		}
 	}
 }
 
-func (cp *connectionPair) markBothSidesClosed() {
-	cp.InterfaceSide.closed.Store(true)
-	cp.ManagerSide.closed.Store(true)
-}
-
 func (cp *connectionPair) Close(ctx context.Context) error {
-	if cp.InterfaceSide.closed.CompareAndSwap(false, true) || cp.ManagerSide.closed.CompareAndSwap(false, true) {
+	// They're the same `closed`
+	if !cp.InterfaceSide.closed.CompareAndSwap(false, true) {
 		return ErrConnectionClosed
 	}
 	select {
@@ -99,6 +91,16 @@ func (ic *InterfaceConnection) Close() error {
 	ic.closedChan <- nil
 
 	return nil
+}
+
+func (ic *InterfaceConnection) close() {
+	ic.closed.Store(true) // in case we haven't already done this (e.g. invoked from outside)
+
+	ic.onCloseMu.Lock()
+	defer ic.onCloseMu.Unlock()
+	for _, onClose := range ic.onClose {
+		onClose()
+	}
 }
 
 // Send sends a message to a Stable Interface instance for processing via it's OnRecv handler (if it exists).
@@ -122,4 +124,10 @@ func (ic *InterfaceConnection) Send(ctx context.Context, payload any) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+func (ic *InterfaceConnection) AddOnCloseListener(f func()) {
+	ic.onCloseMu.Lock()
+	defer ic.onCloseMu.Unlock()
+	ic.onClose = append(ic.onClose, f)
 }
