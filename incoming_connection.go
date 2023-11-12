@@ -37,6 +37,7 @@ func (ic *IncomingConnection) Accept() *InterfaceConnection {
 	closed := atomic.Bool{}
 
 	connPair := connectionPair{
+		ID:         ic.ConnectionID,
 		closedChan: closedChan,
 		InterfaceSide: InterfaceConnection{
 			ID:         ic.ConnectionID,
@@ -51,8 +52,8 @@ func (ic *IncomingConnection) Accept() *InterfaceConnection {
 		ManagerSide: InterfaceConnection{
 			ID:         ic.ConnectionID,
 			OnClose:    nil,
-			closed:     &closed,
 			OnRecv:     nil,
+			closed:     &closed,
 			closedChan: closedChan,
 			sendChan:   managerToInterface,
 			recvChan:   interfaceToManager,

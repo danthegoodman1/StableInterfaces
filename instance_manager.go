@@ -13,7 +13,7 @@ type (
 	instanceManager struct {
 		stableInterface  *StableInterface
 		connections      syncx.Map[string, *connectionPair]
-		closing          *atomic.Bool
+		shuttingDown     *atomic.Bool
 		handlingWG       *sync.WaitGroup
 		internalID       string
 		interfaceManager *InterfaceManager
@@ -21,14 +21,14 @@ type (
 )
 
 var (
-	ErrInstanceIsClosing = errors.New("instance is closing")
+	ErrInstanceIsShuttingDown = errors.New("instance is shuttingDown")
 )
 
 func newInstanceManager(im *InterfaceManager, internalID string, stableInterface *StableInterface) *instanceManager {
 	return &instanceManager{
 		stableInterface:  stableInterface,
 		connections:      syncx.NewMap[string, *connectionPair](),
-		closing:          &atomic.Bool{},
+		shuttingDown:     &atomic.Bool{},
 		handlingWG:       &sync.WaitGroup{},
 		internalID:       internalID,
 		interfaceManager: im,
@@ -84,8 +84,8 @@ func (im *instanceManager) Connect(ctx context.Context, meta map[string]any) (*I
 }
 
 func (im *instanceManager) Alarm(ctx context.Context, attempt int, id string, meta map[string]any) error {
-	if im.closing.Load() {
-		return ErrInstanceIsClosing
+	if im.shuttingDown.Load() {
+		return ErrInstanceIsShuttingDown
 	}
 
 	alarmInstance, ok := (*im.stableInterface).(StableInterfaceWithAlarm)
@@ -101,4 +101,38 @@ func (im *instanceManager) Alarm(ctx context.Context, attempt int, id string, me
 		return fmt.Errorf("error in Alarm: %w", err)
 	}
 	return nil
+}
+
+func (im *instanceManager) Shutdown(ctx context.Context) error {
+	if !im.shuttingDown.CompareAndSwap(false, true) {
+		return ErrInstanceIsShuttingDown
+	}
+
+	doneChan := make(chan error)
+
+	go func(edc chan error) {
+		im.shutdown(ctx)
+		doneChan <- nil
+	}(doneChan)
+
+	select {
+	case err := <-doneChan:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (im *instanceManager) shutdown(ctx context.Context) {
+	// Disconnect all connections
+	im.connections.Range(func(connID string, conn *connectionPair) bool {
+		err := conn.Close(ctx)
+		if err != nil {
+			im.interfaceManager.logger.Error(fmt.Sprintf("failed to shutdown connection %s", conn.ID), err)
+		}
+		return true
+	})
+
+	im.handlingWG.Wait()
+	return
 }

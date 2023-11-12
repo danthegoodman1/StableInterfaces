@@ -255,6 +255,10 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	closeChan := make(chan any)
+	ic.OnClose = func() {
+		closeChan <- nil
+	}
 	ic.OnRecv = func(payload any) {
 		fmt.Println("Test function got message from test interface:", payload)
 	}
@@ -284,7 +288,7 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify closing again doesn't work
+	// Verify shuttingDown again doesn't work
 	err = ic.Close()
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
@@ -308,7 +312,7 @@ func TestConnect(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Let's sleep to prevent hitting the context deadline due to optimistic closing
+	// Let's sleep to prevent hitting the context deadline due to optimistic shuttingDown
 	time.Sleep(time.Millisecond)
 
 	// need to wait because this might happen before it's closed
@@ -318,6 +322,13 @@ func TestConnect(t *testing.T) {
 	}
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Fatal("did not get ErrConnectionClosed, got", err)
+	}
+
+	select {
+	case <-closeChan:
+		t.Log("got close chan")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
 	}
 }
 

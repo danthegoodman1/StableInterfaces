@@ -102,7 +102,7 @@ func (iam *internalAlarmManager) checkAlarms() bool {
 
 	err := iam.InterfaceManager.onAlarm(ctx, *nextAlarm)
 	if err != nil {
-		// If closing, we will just delay and retry later
+		// If shuttingDown, we will just delay and retry later
 		if nextAlarm.Attempt <= iam.InterfaceManager.maxAlarmAttempts {
 			// Increment the attempts, update the memory fires at, and retry
 			iam.InterfaceManager.logger.Warn(fmt.Sprintf("alarm '%s' Alarm errored (Attempt %d), delaying", nextAlarm.StoredAlarm.ID, nextAlarm.Attempt), err)

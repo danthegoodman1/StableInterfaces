@@ -21,7 +21,7 @@ type (
 		// Default GetInstanceID
 		HashingFunction func(string) (string, error)
 
-		instances syncx.Map[string, *instanceManager]
+		instanceManagers syncx.Map[string, *instanceManager]
 
 		interfaceSpawner InterfaceSpawner
 
@@ -55,6 +55,7 @@ var (
 	ErrHostDoesNotOwnShard = errors.New("this host does not own the shard that instance belongs to, try checking InterfaceManager.GetHostForID() and whether that equals InterfaceManager.GetHostID()")
 	ErrReturnedNilInstance = errors.New("InterfaceSpawner returned a nil instance")
 	ErrShardNotFound       = errors.New("shard not found, there must be a bug")
+	ErrInstanceNotFound    = errors.New("instance not found")
 )
 
 // NewInterfaceManager makes a new interface.
@@ -132,20 +133,20 @@ func (im *InterfaceManager) GetHostForInternalID(internalID string) (string, err
 }
 
 func (im *InterfaceManager) getOrMakeInstance(internalID string) (*instanceManager, error) {
-	instance, exists := im.instances.Load(internalID)
+	manager, exists := im.instanceManagers.Load(internalID)
 	if !exists {
-		instance = newInstanceManager(im, internalID, ptr(im.interfaceSpawner(internalID)))
-		if instance == nil {
+		manager = newInstanceManager(im, internalID, ptr(im.interfaceSpawner(internalID)))
+		if manager == nil {
 			return nil, ErrReturnedNilInstance
 		}
-		im.instances.Store(internalID, instance)
+		im.instanceManagers.Store(internalID, manager)
 	}
 
-	return instance, nil
+	return manager, nil
 }
 
 func (im *InterfaceManager) destroyInstanceIfExists(internalID string) {
-	im.instances.Delete(internalID)
+	im.instanceManagers.Delete(internalID)
 }
 
 func (im *InterfaceManager) GetInternalID(id string) (string, error) {
@@ -184,22 +185,21 @@ func (im *InterfaceManager) Request(ctx context.Context, instanceID string, payl
 
 // ShutdownInstance turns off the instance if it is running, immediately disconnects connected clients,
 // and waits for Request and Alarm handlers to finish.
-// Returns ErrInstanceNotFound if not running.
-// func (im *InterfaceManager) ShutdownInstance(ctx context.Context, internalID string) error {
-// 	instance, exists := im.instances.Load(internalID)
-// 	if !exists {
-// 		return ErrInstanceNotFound
-// 	}
-//
-// 	// Disconnect all connections
-// 	// Wait for
-// }
+// Returns ErrInstanceNotFound if not running, and ErrInstanceIsShuttingDown if already shutting down.
+func (im *InterfaceManager) ShutdownInstance(ctx context.Context, internalID string) error {
+	manager, exists := im.instanceManagers.Load(internalID)
+	if !exists {
+		return ErrInstanceNotFound
+	}
+
+	return manager.Shutdown(ctx)
+}
 
 // Shutdown shuts down the entire interface manager
 // func (im *InterfaceManager) Shutdown(ctx context.Context) error {
 // 	// TODO
 //  // TODO: Shutdown all alarm managers
-//  // TODO: Shutdown all connections on all instances
+//  // TODO: Shutdown all connections on all instanceManagers
 // }
 
 // Connect connects to an instance for persistent duplex communication.
@@ -258,6 +258,6 @@ func (im *InterfaceManager) IsInstanceRunning(instanceID string) (bool, error) {
 		return false, ErrHostDoesNotOwnShard
 	}
 
-	_, exists := im.instances.Load(internalID)
+	_, exists := im.instanceManagers.Load(internalID)
 	return exists, nil
 }

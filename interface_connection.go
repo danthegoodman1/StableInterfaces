@@ -23,10 +23,10 @@ type (
 		ID   string
 		side interfaceConnectionSide
 
-		// OnClose is called when the connection is closed from the interface-side. This is blocking.
+		// OnClose is called when the connection is closed from the interface-side. This is non-blocking.
 		OnClose func()
 
-		// Optimistic closing
+		// Optimistic shuttingDown
 		closed *atomic.Bool
 
 		// OnRecv is called when the interface send a message to the connection.
@@ -37,6 +37,7 @@ type (
 	}
 
 	connectionPair struct {
+		ID                         string
 		InterfaceSide, ManagerSide InterfaceConnection
 		// Need channels to prevent panic on sending to closed channel, but not blocking
 		// because connection listener is already in goroutine
@@ -56,8 +57,35 @@ func launchConnectionPairListener(cp *connectionPair) {
 				go cp.InterfaceSide.OnRecv(received)
 			}
 		case <-cp.closedChan:
+			// Mark both sides closed
+			cp.markBothSidesClosed()
+
+			// Tell both sides they are closed
+			if cp.InterfaceSide.OnClose != nil {
+				go cp.InterfaceSide.OnClose()
+			}
+			if cp.ManagerSide.OnClose != nil {
+				go cp.ManagerSide.OnClose()
+			}
 			return
 		}
+	}
+}
+
+func (cp *connectionPair) markBothSidesClosed() {
+	cp.InterfaceSide.closed.Store(true)
+	cp.ManagerSide.closed.Store(true)
+}
+
+func (cp *connectionPair) Close(ctx context.Context) error {
+	if cp.InterfaceSide.closed.CompareAndSwap(false, true) || cp.ManagerSide.closed.CompareAndSwap(false, true) {
+		return ErrConnectionClosed
+	}
+	select {
+	case cp.closedChan <- nil:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -66,6 +94,10 @@ func (ic *InterfaceConnection) Close() error {
 	if !ic.closed.CompareAndSwap(false, true) {
 		return ErrConnectionClosed
 	}
+
+	// Close the loop
+	ic.closedChan <- nil
+
 	return nil
 }
 
