@@ -71,3 +71,35 @@ Alarms also have configurable backoff as well, see [interface_manager_options.go
 
 
 It's important to note that when started, every shard will query the AlarmManager for the latest alarms. You may want to introduce some form of rate limiting if you are unable to handle the burst of query activity. See https://github.com/danthegoodman1/StableInterfaces/issues/3#issuecomment-1804756669 for more. It currently loads all pending alarms in memory, so make sure you don't have _billions_ of alarms. Each alarm is lightweight (just a struct in a tree), so the only thing you have to worry about is memory size.
+
+## Other tips
+
+### Persistence of events
+
+A primary use case is some form of stateful instance/machine. In fact, one of the major reasons I made this was because DOs were getting really expensive at >1B req/month, and Temporal (as nice as it is) has far too much overhead for the majority of our use cases.
+
+Many of our use cases are some variation of "When event X happens, wait Y for event Z, and do something depending on whether that times out".
+
+However, you still want to store some persistence for instances such as recovery from restarts and recovery. You most likely also still want to guarantee read-after-write, and durability with handlers like `OnRequest()`.
+
+#### ClickHouse as an event store
+
+The most efficient mechanism we've found for this is as follows:
+
+1. When you receive an event you want to persist, write it to a batch-writer for ClickHouse (order like `instance_id,event_timestamp`)
+2. When that writes, process the event and respond to the `OnRequest()` handler. Consider how you might want to queue the events in-memory so that if multiple events come in and write to the same batch, you process them in the order they arrived to the instance
+3. Keep some flag in memory to indicate whether you just booted (use a mutex, so you can lock this), and back-fill in the events from ClickHouse by streaming the rows in. Make sure you have some flag indicating you are back-filling, so you know not to fire things such as emails while doing this.
+
+You can make modifications such as not waiting for writes, async batch writing ClickHouse-side (optionally waiting), not queueing events based on time in memory, and more. Make sure you use the native protocol and stream rows for reads.
+
+#### Snapshot-style
+
+Another method is to perform snapshots if your instance. This could be done at some max interval (e.g. every 10 seconds if state has changed), or far more frequently (such as every write).
+
+Reconstructing from the original event log is preferable (i.e. ClickHouse event store), however for some other cases this may be more appropriate
+
+#### Hybrid
+
+If you have extremely long event queues, or decide to truncate after some interval, you can combine the above 2 strategies. You can write all events to ClickHouse, then on some interval snapshot state and let ClickHouse truncate events (TTL rows by time).
+
+This should probably only be used at massive data scales, as the complexity outweighs the benefits greatly at smaller scales.
