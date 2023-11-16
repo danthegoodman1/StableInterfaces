@@ -18,11 +18,12 @@ const (
 	testInstructionReturnInternalID = "return internal id"
 	testInstructionDefault          = "default response"
 
-	testMetaKey            = "instruction"
-	testInstructionReject  = "reject"
-	testInstructionAccept  = "accept"
-	testInstructionClose   = "close"
-	testInstructionDoAlarm = "alarm"
+	testMetaKey             = "instruction"
+	testInstructionReject   = "reject"
+	testInstructionAccept   = "accept"
+	testInstructionClose    = "close"
+	testInstructionDoAlarm  = "alarm"
+	testInstructionShutdown = "shutdown"
 
 	testAlarmChannelKey   = "alarmChan"
 	testAlarmRetry        = "retry"
@@ -41,6 +42,9 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 		switch s {
 		case testInstructionReturnError:
 			return nil, testError
+		case testInstructionShutdown:
+			go c.Shutdown(c.Context)
+			return nil, nil
 		case testInstructionReturnInternalID:
 			return ti.internalID, nil
 		case testInstructionDoAlarm:
@@ -484,5 +488,93 @@ func TestWithAlarm(t *testing.T) {
 		}
 	}
 
-	// TODO: Test if an alarm after shutdown will wake it back up
+	// Test if an alarm after shutdown will wake it back up
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it's running
+	_, exists := im.instanceManagers.Load(internalID)
+	if !exists {
+		t.Fatal("instance did not exist")
+	}
+
+	// Send alarm
+	_, err = im.Request(ctx, id, testInstructionDoAlarm)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Let it shut down
+	_, err = im.Request(context.Background(), id, testInstructionShutdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(time.Millisecond)
+
+	// Verify it's not running
+	_, exists = im.instanceManagers.Load(internalID)
+	if exists {
+		t.Fatal("instance exists")
+	}
+
+	// Wait for alarm
+	time.Sleep(time.Second)
+
+	// Verify it's running
+	_, exists = im.instanceManagers.Load(internalID)
+	if !exists {
+		t.Fatal("instance did not exist")
+	}
+}
+
+func TestShutdown(t *testing.T) {
+	host := "host-0"
+	id := "wrgh9uierhguhrhgierhughe"
+
+	alarmManager := NewMemAlarmManager()
+
+	// Verify that the alarm interface creates correctly
+	im, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
+		return &TestInterfaceWithAlarm{
+			TestInterface{
+				internalID: internalID,
+			},
+		}
+	}, WithAlarm(&alarmManager))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = im.Request(context.Background(), id, testInstructionDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it's running
+	_, exists := im.instanceManagers.Load(internalID)
+	if !exists {
+		t.Fatal("instance did not exist")
+	}
+
+	_, err = im.Request(context.Background(), id, testInstructionShutdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Let it shut down
+	time.Sleep(time.Millisecond)
+
+	// Verify it's not running
+	_, exists = im.instanceManagers.Load(internalID)
+	if exists {
+		t.Fatal("instance exists")
+	}
 }

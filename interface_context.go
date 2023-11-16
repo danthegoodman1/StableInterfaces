@@ -87,7 +87,20 @@ func (ic *InterfaceContext) CancelAlarm(ctx context.Context, alarmID string) err
 	return g.Wait()
 }
 
-// Shutdown the instance, immediately disconnects connected clients, and waits for Request and Alarm handlers to finish
-// func (ic *InterfaceContext) Shutdown(ctx context.Context) error {
-// 	return ic.interfaceManager.ShutdownInstance(ctx, ic.InternalInstanceID)
-// }
+// Shutdown the instance, immediately disconnects connected clients, and waits for Request and Alarm handlers to finish.
+// Launches shutdown in goroutine to prevent blocking request handler
+func (ic *InterfaceContext) Shutdown(ctx context.Context) error {
+	if ic.instanceManager.shuttingDown.Load() {
+		return ErrInstanceIsShuttingDown
+	}
+
+	go func() {
+		// Any subsequent error is probably concurrent shutdown somewhere along the path
+		// Might need to use context.WithoutCancel()?
+		err := ic.interfaceManager.ShutdownInstance(ctx, ic.InternalInstanceID)
+		if err != nil {
+			ic.interfaceManager.logger.Error("error shutting down instance", err)
+		}
+	}()
+	return nil
+}
