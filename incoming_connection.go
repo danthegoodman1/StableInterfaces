@@ -13,6 +13,10 @@ type (
 		acceptChan               chan *connectionPair
 		rejectChan               chan error
 	}
+
+	Connection struct {
+		ConnectionID string
+	}
 )
 
 var (

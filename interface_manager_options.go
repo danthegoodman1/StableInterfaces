@@ -11,13 +11,32 @@ type (
 )
 
 var (
-	ErrInterfaceNotWithAlarm        = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the Alarm handler")
+	ErrInterfaceNotWithConnect      = errors.New("the interface did not implement StableInterfaceWithConnect, check if you are missing the OnConnect handler, , or need to use the WithConnect setting")
+	ErrInterfaceNotWithAlarm        = errors.New("the interface did not implement StableInterfaceWithAlarm, check if you are missing the Alarm handler, or need to use the WithAlarm setting")
 	ErrInterfaceManagerNotWithAlarm = errors.New("the interface manager does not have WithAlarm()")
 )
 
 const (
-	withAlarmTestInstanceID = "withAlarmTestInstanceID"
+	withAlarmTestInstanceID   = "withAlarmTestInstanceID"
+	withConnectTestInstanceID = "withConnectTestInstanceID"
 )
+
+func WithConnect() InterfaceManagerOption {
+	return func(manager *InterfaceManager) error {
+		// Spawn a test interface (this doesn't even belong on this host)
+		testInterface, err := manager.getOrMakeInstance(withConnectTestInstanceID)
+		if err != nil {
+			return fmt.Errorf("error in getOrMakeInstance: %w", err)
+		}
+		defer manager.destroyInstanceIfExists(withConnectTestInstanceID)
+		if _, ok := (*testInterface.stableInterface).(StableInterfaceWithConnect); !ok {
+			return ErrInterfaceNotWithConnect
+		}
+		// We are good otherwise
+		manager.withConnect = true
+		return nil
+	}
+}
 
 func WithAlarm(alarmManager AlarmManager) InterfaceManagerOption {
 	return func(manager *InterfaceManager) error {

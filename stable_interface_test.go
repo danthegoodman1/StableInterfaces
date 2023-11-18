@@ -240,7 +240,7 @@ func TestConnect(t *testing.T) {
 		return &TestInterface{
 			internalID: internalID,
 		}
-	})
+	}, WithConnect())
 	if err != nil {
 		t.Fatal(err)
 	}
