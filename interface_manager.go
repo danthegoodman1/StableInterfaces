@@ -33,6 +33,7 @@ type (
 		modifyAlarmTimeout    *time.Duration
 		alarmRetryBackoff     *time.Duration
 		maxAlarmAttempts      int
+		withConnect           bool
 
 		logger Logger
 	}
@@ -213,6 +214,10 @@ func (im *InterfaceManager) ShutdownInstance(ctx context.Context, internalID str
 // The recvHandler parameter will receive (blocking) messages when an instance sends a message to that, so you probably want to launch a goroutine for concurrency.
 // The returned MsgHandler can be invoked when you want to send a message to the instance
 func (im *InterfaceManager) Connect(ctx context.Context, instanceID string, meta map[string]any) (*InterfaceConnection, error) {
+	if !im.withConnect {
+		return nil, ErrInterfaceNotWithConnect
+	}
+
 	internalID, err := im.GetInternalID(instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("error in GetInternalID: %w", err)

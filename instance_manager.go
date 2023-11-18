@@ -55,11 +55,14 @@ func (im *instanceManager) Request(ctx context.Context, payload any) (any, error
 }
 
 func (im *instanceManager) Connect(ctx context.Context, meta map[string]any) (*InterfaceConnection, error) {
+	if !im.interfaceManager.withConnect {
+		return nil, ErrInterfaceNotWithConnect
+	}
 	connID := genRandomID("")
 	incoming := newIncomingConnection(im.internalID, connID, meta)
 	doneChan := make(chan any, 1)
 	go func() {
-		(*im.stableInterface).OnConnect(im.makeInterfaceContext(ctx), *incoming)
+		(*im.stableInterface).(StableInterfaceWithConnect).OnConnect(im.makeInterfaceContext(ctx), *incoming)
 		doneChan <- nil
 	}()
 
