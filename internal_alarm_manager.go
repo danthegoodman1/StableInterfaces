@@ -193,3 +193,15 @@ func (iam *internalAlarmManager) ReplaceAlarm(alarm *wrappedStoredAlarm) {
 	iam.DeleteAlarm(alarm.StoredAlarm.ID)
 	iam.SetAlarm(*alarm)
 }
+
+func (iam *internalAlarmManager) listAlarmsForInstance(internalID string) (alarms []*StoredAlarm) {
+	iam.alarmIndexMu.Lock()
+	defer iam.alarmIndexMu.Unlock()
+	iam.alarmIndex.Scan(func(key string, value *wrappedStoredAlarm) bool {
+		if value.StoredAlarm.InterfaceInstanceInternalID == internalID {
+			alarms = append(alarms, &value.StoredAlarm)
+		}
+		return true
+	})
+	return
+}

@@ -59,7 +59,6 @@ func launchConnectionPairListener(cp *connectionPair) {
 				go cp.InterfaceSide.OnRecv(received)
 			}
 		case <-cp.closedChan:
-			fmt.Println("got closed chan", cp.ID)
 			// Mark both sides closed
 			go cp.InterfaceSide.close()
 			go cp.ManagerSide.close()

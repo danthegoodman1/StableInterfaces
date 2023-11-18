@@ -135,7 +135,6 @@ func (im *instanceManager) shutdown(ctx context.Context) {
 	im.connections.Range(func(connID string, conn *connectionPair) bool {
 		err := conn.Close(ctx)
 		if err != nil {
-			fmt.Println(err, connID)
 			im.interfaceManager.logger.Error(fmt.Sprintf("failed to shutdown connection %s", conn.ID), err)
 		}
 		return true
