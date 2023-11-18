@@ -78,7 +78,7 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 			}
 
 			//  Queue another for timeout
-			err = c.SetAlarm(c.Context, alarmID+"_4", map[string]any{
+			err = c.SetAlarm(c.Context, alarmID+"_3", map[string]any{
 				testAlarmRetryForever: true,
 				testAlarmChannelKey:   responseChan4,
 			}, time.Now().Add(time.Millisecond*300))
@@ -435,12 +435,41 @@ func TestWithAlarm(t *testing.T) {
 		t.Fatal("did not get ErrInterfaceNotWithAlarm, got:", err)
 	}
 
+	// List the alarms
+	internalID, err := im.GetInternalID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shard := instanceInternalIDToShard(internalID, 1024)
+	iam, exists := im.internalAlarmManagers.Load(shard)
+	if !exists {
+		t.Fatal("alarm manager did not exist")
+	}
+
+	// verify there are no active alarms
+	activeAlarms := iam.listAlarmsForInstance(internalID)
+	if len(activeAlarms) != 0 {
+		for _, aa := range activeAlarms {
+			t.Log(aa.ID)
+		}
+		t.Fatalf("Got incorrect number of active alarms: %d", len(activeAlarms))
+	}
+
 	// Test alarm firing
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	res, err := im.Request(ctx, id, testInstructionDoAlarm)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	activeAlarms = iam.listAlarmsForInstance(internalID)
+	if len(activeAlarms) != 4 {
+		for _, aa := range activeAlarms {
+			t.Log(aa.ID)
+		}
+		t.Fatalf("Got incorrect number of active alarms: %d", len(activeAlarms))
 	}
 
 	alarmChans, ok := res.([]chan any)
@@ -489,13 +518,8 @@ func TestWithAlarm(t *testing.T) {
 	}
 
 	// Test if an alarm after shutdown will wake it back up
-	internalID, err := im.GetInternalID(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// Verify it's running
-	_, exists := im.instanceManagers.Load(internalID)
+	_, exists = im.instanceManagers.Load(internalID)
 	if !exists {
 		t.Fatal("instance did not exist")
 	}

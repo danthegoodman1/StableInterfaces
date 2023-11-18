@@ -53,8 +53,15 @@ func (ic *InterfaceContext) SetAlarm(ctx context.Context, id string, meta map[st
 	return nil
 }
 
-// TODO
-// func (ic *InterfaceContext) ListAlarms(ctx context.Context, alarm StoredAlarm, offset string) error {}
+func (ic *InterfaceContext) ListAlarms() ([]*StoredAlarm, error) {
+	iam, found := ic.interfaceManager.internalAlarmManagers.Load(ic.Shard)
+	if !found {
+		return nil, ErrInternalAlarmManagerNotFound
+	}
+
+	// Get the alarms for that shard
+	return iam.listAlarmsForInstance(ic.InternalInstanceID), nil
+}
 
 func (ic *InterfaceContext) CancelAlarm(ctx context.Context, alarmID string) error {
 	if ic.interfaceManager.alarmManager == nil {
