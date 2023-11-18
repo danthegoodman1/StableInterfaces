@@ -94,7 +94,11 @@ func (ti *TestInterface) OnRequest(c InterfaceContext, payload any) (any, error)
 	return nil, errUnknownInstruction
 }
 
-func (ti *TestInterface) OnConnect(c InterfaceContext, ic IncomingConnection) {
+type TestInterfaceWithConnect struct {
+	TestInterface
+}
+
+func (ti *TestInterfaceWithConnect) OnConnect(c InterfaceContext, ic IncomingConnection) {
 	switch ic.Meta[testMetaKey] {
 	case testInstructionReject:
 		ic.Reject(testError)
@@ -237,8 +241,10 @@ func TestConnect(t *testing.T) {
 	host := "host-0"
 	id := "wrgh9uierhguhrhgierhughe"
 	im, err := NewInterfaceManager(host, "host-{0..1}", 1024, func(internalID string) StableInterface {
-		return &TestInterface{
-			internalID: internalID,
+		return &TestInterfaceWithConnect{
+			TestInterface{
+				internalID: internalID,
+			},
 		}
 	}, WithConnect())
 	if err != nil {
