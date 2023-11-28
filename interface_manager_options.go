@@ -29,7 +29,7 @@ func WithConnect() InterfaceManagerOption {
 			return fmt.Errorf("error in getOrMakeInstance: %w", err)
 		}
 		defer manager.destroyInstanceIfExists(withConnectTestInstanceID)
-		if _, ok := (*testInterface.stableInterface).(StableInterfaceWithConnect); !ok {
+		if _, ok := testInterface.stableInterface.(StableInterfaceWithConnect); !ok {
 			return ErrInterfaceNotWithConnect
 		}
 		// We are good otherwise
@@ -46,7 +46,7 @@ func WithAlarm(alarmManager AlarmManager) InterfaceManagerOption {
 			return fmt.Errorf("error in getOrMakeInstance: %w", err)
 		}
 		defer manager.destroyInstanceIfExists(withAlarmTestInstanceID)
-		if _, ok := (*testInterface.stableInterface).(StableInterfaceWithAlarm); !ok {
+		if _, ok := testInterface.stableInterface.(StableInterfaceWithAlarm); !ok {
 			return ErrInterfaceNotWithAlarm
 		}
 		// We are good otherwise

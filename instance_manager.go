@@ -11,7 +11,7 @@ import (
 
 type (
 	instanceManager struct {
-		stableInterface  *StableInterface
+		stableInterface  StableInterface
 		connections      syncx.Map[string, *connectionPair]
 		shuttingDown     *atomic.Bool
 		handlingWG       *sync.WaitGroup
@@ -24,7 +24,7 @@ var (
 	ErrInstanceIsShuttingDown = errors.New("instance is shuttingDown")
 )
 
-func newInstanceManager(im *InterfaceManager, internalID string, stableInterface *StableInterface) *instanceManager {
+func newInstanceManager(im *InterfaceManager, internalID string, stableInterface StableInterface) *instanceManager {
 	return &instanceManager{
 		stableInterface:  stableInterface,
 		connections:      syncx.NewMap[string, *connectionPair](),
@@ -46,7 +46,7 @@ func (im *instanceManager) makeInterfaceContext(ctx context.Context) InterfaceCo
 }
 
 func (im *instanceManager) Request(ctx context.Context, payload any) (any, error) {
-	response, err := (*im.stableInterface).OnRequest(im.makeInterfaceContext(ctx), payload)
+	response, err := im.stableInterface.OnRequest(im.makeInterfaceContext(ctx), payload)
 	if err != nil {
 		return nil, wrapStableInterfaceHandlerError(err)
 	}
@@ -62,7 +62,7 @@ func (im *instanceManager) Connect(ctx context.Context, meta map[string]any) (*I
 	incoming := newIncomingConnection(im.internalID, connID, meta)
 	doneChan := make(chan any, 1)
 	go func() {
-		(*im.stableInterface).(StableInterfaceWithConnect).OnConnect(im.makeInterfaceContext(ctx), *incoming)
+		im.stableInterface.(StableInterfaceWithConnect).OnConnect(im.makeInterfaceContext(ctx), *incoming)
 		doneChan <- nil
 	}()
 
@@ -97,7 +97,7 @@ func (im *instanceManager) Alarm(ctx context.Context, attempt int, id string, me
 		return ErrInstanceIsShuttingDown
 	}
 
-	alarmInstance, ok := (*im.stableInterface).(StableInterfaceWithAlarm)
+	alarmInstance, ok := im.stableInterface.(StableInterfaceWithAlarm)
 	if !ok {
 		return fmt.Errorf("%w -- this is a bug, please report", ErrInterfaceNotWithAlarm)
 	}

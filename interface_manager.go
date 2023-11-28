@@ -136,7 +136,7 @@ func (im *InterfaceManager) GetHostForInternalID(internalID string) (string, err
 func (im *InterfaceManager) getOrMakeInstance(internalID string) (*instanceManager, error) {
 	manager, exists := im.instanceManagers.Load(internalID)
 	if !exists {
-		manager = newInstanceManager(im, internalID, ptr(im.interfaceSpawner(internalID)))
+		manager = newInstanceManager(im, internalID, im.interfaceSpawner(internalID))
 		if manager == nil {
 			return nil, ErrReturnedNilInstance
 		}
@@ -181,7 +181,7 @@ func (im *InterfaceManager) Request(ctx context.Context, instanceID string, payl
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	return (*instance).Request(ctx, payload)
+	return instance.Request(ctx, payload)
 }
 
 // ShutdownInstance turns off the instance if it is running, immediately disconnects connected clients,
@@ -237,7 +237,7 @@ func (im *InterfaceManager) Connect(ctx context.Context, instanceID string, meta
 		return nil, fmt.Errorf("error in getOrMakeInstance: %w", err)
 	}
 
-	return (*instance).Connect(ctx, meta)
+	return instance.Connect(ctx, meta)
 }
 
 func (im *InterfaceManager) getStoredAlarms(shard uint32) ([]StoredAlarm, error) {
