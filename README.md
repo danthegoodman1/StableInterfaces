@@ -63,7 +63,7 @@ The `AlarmManager` is an interface that implements a few functions for persistin
 
 Alarms are managed per-shard, and mostly write to the database (creation and deletion). Reads only occur when a node restarts and needs to read in any previously created alarms.
 
-Unlike DurableObjects, alarms are a bit more capable in StableInterfaces. Each alarm has an `ID` and `Meta` available to it. This means you can make multiple alarms at the same time, which will fire off in (time, ID) order. `Meta` is a `map[string]any`, so you can attach metadata to your alarm to know what it's for. You can also list, update, and cancel alarms. This is a simple durable pattern for background processing.
+Unlike DurableObjects, alarms are a bit more capable in StableInterfaces. Each alarm has an `ID` and `Meta` available to it. This means you can make multiple alarms at the same time, which will fire off in (time, ID) order. `Meta` is a `map[string]any` (must be serializable), so you can attach metadata to your alarm to know what it's for. You can also list, update, and cancel alarms. This is a simple durable pattern for background processing.
 
 By default, alarms will be tested for every 150 milliseconds. You can override this with the `WithAlarmCheckInterval()` option. Alarms are handled sequentially, one at a time. This interval is only used between checks of no active alarms. If an alarm fires, the handler is launched in a goroutine and the alarm check immediately runs.
 
