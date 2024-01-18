@@ -88,7 +88,7 @@ The most efficient mechanism we've found for this is as follows:
 
 1. When you receive an event you want to persist, write it to a batch-writer for ClickHouse (order like `instance_id,event_timestamp`)
 2. When that writes, process the event and respond to the `OnRequest()` handler. Consider how you might want to queue the events in-memory so that if multiple events come in and write to the same batch, you process them in the order they arrived to the instance
-3. Keep some flag in memory to indicate whether you just booted (use a mutex, so you can lock this), and back-fill in the events from ClickHouse by streaming the rows in. Make sure you have some flag indicating you are back-filling, so you know not to fire things such as emails while doing this.
+3. Keep some flag in memory to indicate whether you just booted (use a mutex, so you can hold new incoming events), and back-fill in the events from ClickHouse by streaming the rows in. Make sure you have some flag indicating you are back-filling, so you know not to fire things such as emails while doing this.
 
 You can make modifications such as not waiting for writes, async batch writing ClickHouse-side (optionally waiting), not queueing events based on time in memory, and more. Make sure you use the native protocol and stream rows for reads.
 
