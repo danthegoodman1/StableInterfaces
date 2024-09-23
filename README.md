@@ -86,11 +86,13 @@ However, you still want to store some persistence for instances such as recovery
 
 The most efficient mechanism we've found for this is as follows:
 
-1. When you receive an event you want to persist, write it to a batch-writer for ClickHouse (order like `instance_id,event_timestamp`)
+1. When you receive an event you want to persist, write it to a batch-writer for ClickHouse (order like `instance_id,event_id`, `event_id` being sorted)
 2. When that writes, process the event and respond to the `OnRequest()` handler. Consider how you might want to queue the events in-memory so that if multiple events come in and write to the same batch, you process them in the order they arrived to the instance
 3. Keep some flag in memory to indicate whether you just booted (use a mutex, so you can hold new incoming events), and back-fill in the events from ClickHouse by streaming the rows in. Make sure you have some flag indicating you are back-filling, so you know not to fire things such as emails while doing this.
 
 You can make modifications such as not waiting for writes, async batch writing ClickHouse-side (optionally waiting), not queueing events based on time in memory, and more. Make sure you use the native protocol and stream rows for reads.
+
+To support multiple hosts, see the [Hash-based](#hash-based) section below
 
 #### Snapshot-style
 
@@ -100,6 +102,18 @@ Reconstructing from the original event log is preferable (i.e. ClickHouse event 
 
 #### Hybrid
 
-If you have extremely long event queues, or decide to truncate after some interval, you can combine the above 2 strategies. You can write all events to ClickHouse, then on some interval snapshot state and let ClickHouse truncate events (TTL rows by time).
+### Multi-node Coordination
 
-This should probably only be used at massive data scales, as the complexity outweighs the benefits greatly at smaller scales.
+#### Hash-based
+
+An instance ID maps to a node determined by a hashing function.
+
+You can have crude verisons of this (k8s stateful sets), or more complex versions (supporting hybird IDs so you can have part ID map to a cluster, and part be the instance ID, then can cache lookups for cluster ID in memory).
+
+To support recovery (persistence), you can modify the ClickHouse method above to add a materialized view that performs the same hashing function as your routing logic, resulting in a table like `hash_token,instance_id,event_id`. Then, when a node that has a token assigned to it recovers (e.g. the `*-1` statefulset pod boots in k8s), it can easily pull all of the data for that hash token.
+
+Depending on how often you fail-over, it might be better to drop the event here, and only store the `hash_token,instance_id` mapping (omit the event data), then can resolve the event data by pulling the event feed by `instance_id` later.
+
+This makes it relatively trivial to increase and decrease the number of hash tokens, because you can just rebuild the materialized view in the background, switch once built, fail-over nodes, then when everything is recovered you can delete the old materialized view.
+
+There are many other methods, this is just a particularly lightweight and easy method to implement at scale if it satisfies requirements.
